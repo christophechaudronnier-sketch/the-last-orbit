@@ -1,0 +1,1264 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>THE LAST ORBIT</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600&display=swap" rel="stylesheet">
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+
+// ========== FIREBASE CONFIG ==========
+const firebaseConfig = {
+  apiKey: "AIzaSyBt1oSycPtbuFvft89OjX31eDjS2eqxZUc",
+  authDomain: "the-last-orbit.firebaseapp.com",
+  projectId: "the-last-orbit",
+  storageBucket: "the-last-orbit.firebasestorage.app",
+  messagingSenderId: "207177508709",
+  appId: "1:207177508709:web:d9f67d9a509a7d8e69a38c",
+  measurementId: "G-07HZTSD8WT"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const auth = getAuth(app);
+
+// ========== TRANSLATIONS ==========
+const T = {
+  fr: {
+    title: "THE LAST ORBIT",
+    tagline: "La galaxie vous attend, Commandant.",
+    login: "CONNEXION",
+    register: "CRÉER UN COMPTE",
+    email: "Adresse email",
+    password: "Mot de passe",
+    planetName: "Nom de votre planète",
+    commanderName: "Nom de votre commandant",
+    startEmpire: "FONDER L'EMPIRE",
+    logout: "DÉCONNEXION",
+    turnLabel: "TOUR EN COURS",
+    nextTurn: "PROCHAIN TOUR DANS",
+    metal: "Métal",
+    crystal: "Cristal",
+    energy: "Énergie",
+    overview: "Vue Globale",
+    buildings: "Bâtiments",
+    research: "Recherche",
+    fleet: "Flotte",
+    missions: "Missions",
+    galaxy: "Galaxie",
+    log: "Journal",
+    build: "CONSTRUIRE",
+    inQueue: "⏳ EN ATTENTE",
+    locked: "🔒 VERROUILLÉ",
+    maxed: "✅ MAXIMUM",
+    researching: "⏳ EN COURS",
+    order: "COMMANDER",
+    launch: "LANCER LA MISSION",
+    inMission: "⏳ EN MISSION",
+    perTurn: "/tour",
+    level: "Nv.",
+    requires: "Requiert",
+    noQueue: "Aucune construction en attente",
+    noMission: "Aucune mission en cours",
+    noLog: "Aucun événement enregistré",
+    production: "Production par tour",
+    defenses: "Défenses",
+    fleetStats: "Flotte",
+    buildingLevels: "Bâtiments (niveaux)",
+    attack: "ATT",
+    defense: "DÉF",
+    qty: "Qté",
+    planetCoords: "Secteur Alpha · Système",
+    welcome: "Bienvenue, Commandant ! Construisez vos mines pour commencer.",
+    turnStarted: "Tour commencé ! Ressources produites.",
+    buildQueued: "ajoutée à la file de construction !",
+    researchQueued: "Recherche lancée !",
+    shipQueued: "en construction !",
+    missionLaunched: "Mission lancée ! Résultats demain.",
+    insufficientRes: "Ressources insuffisantes !",
+    alreadyQueued: "Déjà en file !",
+    prereqNotMet: "Prérequis non atteints !",
+    alreadyMission: "Mission déjà active !",
+    playerCount: "joueurs en ligne",
+    galaxy_title: "Galaxie",
+    galaxy_sub: "Les empires actifs dans l'univers.",
+    noPlayers: "Aucun autre empire détecté.",
+    lang: "EN",
+    loading: "Chargement...",
+    saving: "Sauvegarde...",
+    errorLogin: "Erreur de connexion. Vérifiez vos identifiants.",
+    errorRegister: "Erreur lors de la création du compte.",
+    orDivider: "ou",
+    shields: "Boucliers",
+    cannons: "Canons laser",
+    rockets: "Lance-roquettes",
+    fighters: "Chasseurs",
+    cruisers: "Croiseurs",
+    battleships: "Cuirassés",
+    mineMetal: "Mine de métal",
+    mineCrystal: "Mine de cristal",
+    powerPlant: "Centrale",
+  },
+  en: {
+    title: "THE LAST ORBIT",
+    tagline: "The galaxy awaits, Commander.",
+    login: "SIGN IN",
+    register: "CREATE ACCOUNT",
+    email: "Email address",
+    password: "Password",
+    planetName: "Your planet name",
+    commanderName: "Your commander name",
+    startEmpire: "FOUND THE EMPIRE",
+    logout: "SIGN OUT",
+    turnLabel: "CURRENT TURN",
+    nextTurn: "NEXT TURN IN",
+    metal: "Metal",
+    crystal: "Crystal",
+    energy: "Energy",
+    overview: "Overview",
+    buildings: "Buildings",
+    research: "Research",
+    fleet: "Fleet",
+    missions: "Missions",
+    galaxy: "Galaxy",
+    log: "Log",
+    build: "BUILD",
+    inQueue: "⏳ QUEUED",
+    locked: "🔒 LOCKED",
+    maxed: "✅ MAX",
+    researching: "⏳ IN PROGRESS",
+    order: "ORDER",
+    launch: "LAUNCH MISSION",
+    inMission: "⏳ IN MISSION",
+    perTurn: "/turn",
+    level: "Lv.",
+    requires: "Requires",
+    noQueue: "No pending construction",
+    noMission: "No active mission",
+    noLog: "No events recorded",
+    production: "Production per turn",
+    defenses: "Defenses",
+    fleetStats: "Fleet",
+    buildingLevels: "Buildings (levels)",
+    attack: "ATK",
+    defense: "DEF",
+    qty: "Qty",
+    planetCoords: "Sector Alpha · System",
+    welcome: "Welcome, Commander! Build your mines to get started.",
+    turnStarted: "Turn started! Resources produced.",
+    buildQueued: "added to construction queue!",
+    researchQueued: "Research launched!",
+    shipQueued: "under construction!",
+    missionLaunched: "Mission launched! Results tomorrow.",
+    insufficientRes: "Insufficient resources!",
+    alreadyQueued: "Already queued!",
+    prereqNotMet: "Prerequisites not met!",
+    alreadyMission: "Mission already active!",
+    playerCount: "players online",
+    galaxy_title: "Galaxy",
+    galaxy_sub: "Active empires in the universe.",
+    noPlayers: "No other empire detected.",
+    lang: "FR",
+    loading: "Loading...",
+    saving: "Saving...",
+    errorLogin: "Login error. Check your credentials.",
+    errorRegister: "Error creating account.",
+    orDivider: "or",
+    shields: "Shields",
+    cannons: "Laser cannons",
+    rockets: "Rocket launchers",
+    fighters: "Fighters",
+    cruisers: "Cruisers",
+    battleships: "Battleships",
+    mineMetal: "Metal mine",
+    mineCrystal: "Crystal mine",
+    powerPlant: "Power plant",
+  }
+};
+
+let lang = localStorage.getItem('tlo_lang') || 'fr';
+function t(key) { return T[lang][key] || key; }
+
+// ========== GAME DATA ==========
+const BUILDINGS = [
+  { id: 'mine_metal', nameKey: 'mineMetal', icon: '⛏️', descFr: "Extrait du métal brut de la croûte planétaire.", descEn: "Extracts raw metal from the planetary crust.", costBase: {metal:60,crystal:15,energy:0}, production:'metal', prodBase:20 },
+  { id: 'mine_crystal', nameKey: 'mineCrystal', icon: '💠', descFr: "Extrait des cristaux rares essentiels à la technologie.", descEn: "Extracts rare crystals essential to technology.", costBase: {metal:48,crystal:24,energy:0}, production:'crystal', prodBase:12 },
+  { id: 'power_plant', nameKey: 'powerPlant', icon: '🔋', descFr: "Génère de l'énergie pour vos installations.", descEn: "Generates energy to power your facilities.", costBase: {metal:75,crystal:30,energy:0}, production:'energy', prodBase:25 },
+  { id: 'shipyard', nameKey: null, icon: '🛸', nameFr:'Chantier Naval', nameEn:'Shipyard', descFr: "Permet la construction de vaisseaux spatiaux.", descEn: "Enables construction of spacecraft.", costBase: {metal:200,crystal:100,energy:30}, production:null },
+  { id: 'defense_turret', nameKey: null, icon: '🔫', nameFr:'Tourelle Laser', nameEn:'Laser Turret', descFr: "Défense planétaire automatique.", descEn: "Automatic planetary defense.", costBase: {metal:150,crystal:50,energy:20}, production:null },
+  { id: 'research_lab', nameKey: null, icon: '🔭', nameFr:'Laboratoire', nameEn:'Research Lab', descFr: "Débloque et accélère les recherches.", descEn: "Unlocks and accelerates research.", costBase: {metal:200,crystal:400,energy:40}, production:null },
+];
+
+const RESEARCH = [
+  { id:'combustion', icon:'🌀', nameFr:'Propulsion Ionique', nameEn:'Ion Propulsion', descFr:"Améliore la vitesse de votre flotte.", descEn:"Improves fleet speed.", costBase:{metal:0,crystal:400,energy:0}, requires:{research_lab:1}, bonusFr:"Flotte +20% vitesse", bonusEn:"Fleet +20% speed" },
+  { id:'weapons', icon:'⚡', nameFr:'Technologie des Armes', nameEn:'Weapons Technology', descFr:"Augmente la puissance d'attaque.", descEn:"Increases attack power.", costBase:{metal:800,crystal:200,energy:0}, requires:{research_lab:2}, bonusFr:"Attaque +25%", bonusEn:"Attack +25%" },
+  { id:'shields', icon:'🛡️', nameFr:'Technologie des Boucliers', nameEn:'Shield Technology', descFr:"Renforce les boucliers de votre flotte.", descEn:"Reinforces fleet shields.", costBase:{metal:200,crystal:600,energy:0}, requires:{research_lab:2}, bonusFr:"Défense +25%", bonusEn:"Defense +25%" },
+  { id:'espionage', icon:'👁️', nameFr:"Technologie d'Espionnage", nameEn:'Espionage Technology', descFr:"Permet de sonder les systèmes ennemis.", descEn:"Allows scouting enemy systems.", costBase:{metal:0,crystal:1000,energy:0}, requires:{research_lab:3}, bonusFr:"Missions d'espionnage", bonusEn:"Espionage missions" },
+  { id:'hyperdrive', icon:'🌌', nameFr:'Hyperpropulsion', nameEn:'Hyperdrive', descFr:"Permet de construire des cuirassés.", descEn:"Enables battleship construction.", costBase:{metal:0,crystal:2000,energy:600}, requires:{research_lab:4,combustion:1}, bonusFr:"Déblocage Cuirassés", bonusEn:"Unlocks Battleships" },
+];
+
+const SHIPS = [
+  { id:'fighter', icon:'🔹', nameFr:'Chasseur Léger', nameEn:'Light Fighter', descFr:"Rapide et peu coûteux.", descEn:"Fast and cheap.", cost:{metal:3000,crystal:1000,energy:0}, att:50, def:20, requires:{shipyard:1} },
+  { id:'cruiser', icon:'🔸', nameFr:'Croiseur', nameEn:'Cruiser', descFr:"Solide et puissant.", descEn:"Solid and powerful.", cost:{metal:20000,crystal:7000,energy:2000}, att:200, def:100, requires:{shipyard:2,combustion:1} },
+  { id:'battleship', icon:'🔶', nameFr:'Cuirassé', nameEn:'Battleship', descFr:"Le plus puissant de votre flotte.", descEn:"The most powerful in your fleet.", cost:{metal:45000,crystal:15000,energy:0}, att:1000, def:500, requires:{shipyard:3,hyperdrive:1} },
+  { id:'colonizer', icon:'📦', nameFr:'Vaisseau Cargo', nameEn:'Cargo Ship', descFr:"Transporte d'importantes ressources.", descEn:"Transports large amounts of resources.", cost:{metal:10000,crystal:20000,energy:1000}, att:5, def:10, requires:{shipyard:2} },
+];
+
+const MISSIONS = [
+  { id:'explore', icon:'🔭', nameFr:'Exploration', nameEn:'Exploration', descFr:"Explorez un secteur inconnu. Chance de trouver des ressources.", descEn:"Explore an unknown sector. Chance to find resources.", minShips:0 },
+  { id:'raid', icon:'💰', nameFr:'Raid de Ressources', nameEn:'Resource Raid', descFr:"Attaquez un convoi pour voler des ressources.", descEn:"Attack a convoy to steal resources.", minShips:1 },
+  { id:'attack', icon:'⚔️', nameFr:'Assaut Planétaire', nameEn:'Planetary Assault', descFr:"Lancez une attaque sur une planète ennemie.", descEn:"Launch an attack on an enemy planet.", minShips:3 },
+  { id:'defend', icon:'🛡️', nameFr:'Patrouille', nameEn:'Patrol', descFr:"Renforcez vos défenses en orbite.", descEn:"Reinforce your defenses in orbit.", minShips:2 },
+];
+
+// ========== STATE ==========
+let G = null;
+let currentUser = null;
+
+function getBName(b) { return b.nameKey ? t(b.nameKey) : (lang==='fr' ? b.nameFr : b.nameEn); }
+function getRName(r) { return lang==='fr' ? r.nameFr : r.nameEn; }
+function getSName(s) { return lang==='fr' ? s.nameFr : s.nameEn; }
+function getMName(m) { return lang==='fr' ? m.nameFr : m.nameEn; }
+
+// ========== FIREBASE OPS ==========
+async function saveGame() {
+  if (!currentUser || !G) return;
+  try {
+    await setDoc(doc(db, 'players', currentUser.uid), G);
+  } catch(e) { console.error('Save error:', e); }
+}
+
+async function loadGame() {
+  if (!currentUser) return false;
+  try {
+    const snap = await getDoc(doc(db, 'players', currentUser.uid));
+    if (snap.exists()) { G = snap.data(); return true; }
+    return false;
+  } catch(e) { console.error('Load error:', e); return false; }
+}
+
+async function loadGalaxy() {
+  try {
+    const snap = await getDocs(collection(db, 'players'));
+    const players = [];
+    snap.forEach(d => { if (d.id !== currentUser?.uid) players.push(d.data()); });
+    return players;
+  } catch(e) { return []; }
+}
+
+// ========== GAME LOGIC ==========
+function createNewGame(planetName, commanderName) {
+  const emojis = ['🪐','🌍','🌑','🌕','🔴','🟤','🔵'];
+  G = {
+    planetName: planetName || 'Nexara Prime',
+    commanderName: commanderName || 'Commander',
+    turn: 1,
+    nextTurnTime: nextMidnight(),
+    resources: { metal: 500, crystal: 200, energy: 100 },
+    buildings: { mine_metal:0, mine_crystal:0, power_plant:0, shipyard:0, defense_turret:0, research_lab:0 },
+    research: { combustion:0, weapons:0, shields:0, espionage:0, hyperdrive:0 },
+    fleet: { fighter:0, cruiser:0, battleship:0, colonizer:0 },
+    defense: { shields:0, cannons:0, rockets:0 },
+    buildQueue: [],
+    activeMissions: [],
+    log: [],
+    planetEmoji: emojis[Math.floor(Math.random()*emojis.length)],
+    sector: Math.floor(Math.random()*9)+1,
+    lastSeen: Date.now(),
+  };
+}
+
+function getBuildingCost(b, lv) {
+  return {
+    metal: Math.floor(b.costBase.metal * Math.pow(1.5, lv)),
+    crystal: Math.floor(b.costBase.crystal * Math.pow(1.5, lv)),
+    energy: Math.floor(b.costBase.energy * Math.pow(1.5, lv)),
+  };
+}
+function getResearchCost(r) {
+  const lv = G.research[r.id];
+  return {
+    metal: Math.floor(r.costBase.metal * Math.pow(2, lv)),
+    crystal: Math.floor(r.costBase.crystal * Math.pow(2, lv)),
+    energy: Math.floor(r.costBase.energy * Math.pow(2, lv)),
+  };
+}
+function getProduction() {
+  const prod = { metal:20, crystal:10, energy:10 };
+  BUILDINGS.forEach(b => {
+    const lv = G.buildings[b.id];
+    if (!lv || !b.production) return;
+    prod[b.production] += b.prodBase * lv;
+  });
+  return prod;
+}
+function canAfford(cost) {
+  return G.resources.metal >= (cost.metal||0) && G.resources.crystal >= (cost.crystal||0) && G.resources.energy >= (cost.energy||0);
+}
+function spend(cost) {
+  G.resources.metal -= (cost.metal||0);
+  G.resources.crystal -= (cost.crystal||0);
+  G.resources.energy -= (cost.energy||0);
+}
+function meetsReqs(requires) {
+  if (!requires) return true;
+  for (const [k,v] of Object.entries(requires)) {
+    const actual = G.buildings[k] !== undefined ? G.buildings[k] : G.research[k] !== undefined ? G.research[k] : 0;
+    if (actual < v) return false;
+  }
+  return true;
+}
+function totalFleetPower() {
+  const wB = 1 + G.research['weapons'] * 0.25;
+  const sB = 1 + G.research['shields'] * 0.25;
+  let att = 0, def = 0;
+  att += G.fleet.fighter * 50 * wB;
+  att += G.fleet.cruiser * 200 * wB;
+  att += G.fleet.battleship * 1000 * wB;
+  def += G.fleet.fighter * 20 * sB;
+  def += G.fleet.cruiser * 100 * sB;
+  def += G.fleet.battleship * 500 * sB;
+  def += G.defense.cannons * 30;
+  def += G.defense.rockets * 60;
+  def += G.defense.shields * 50;
+  return { att: Math.floor(att), def: Math.floor(def) };
+}
+
+// Calcule le timestamp du prochain minuit (heure locale)
+function nextMidnight() {
+  const d = new Date();
+  d.setHours(24, 0, 0, 0);
+  return d.getTime();
+}
+async function processTurn() {
+  const now = Date.now();
+  if (now < G.nextTurnTime) return;
+  const prod = getProduction();
+  G.resources.metal += prod.metal;
+  G.resources.crystal += prod.crystal;
+  G.resources.energy += prod.energy;
+
+  for (const item of G.buildQueue) {
+    if (item.type === 'building') {
+      G.buildings[item.id] = (G.buildings[item.id]||0) + 1;
+      addLog(`✅ ${item.name} ${t('level')}${G.buildings[item.id]}`, 'info');
+    } else if (item.type === 'research') {
+      G.research[item.id] = (G.research[item.id]||0) + 1;
+      addLog(`✅ ${item.name} ${t('level')}${G.research[item.id]}`, 'info');
+    } else if (item.type === 'ship') {
+      G.fleet[item.id] = (G.fleet[item.id]||0) + item.qty;
+      addLog(`✅ ${item.qty}x ${item.name}`, 'info');
+    }
+  }
+  G.buildQueue = [];
+
+  for (const m of G.activeMissions) processMissionResult(m);
+  G.activeMissions = [];
+
+  G.turn++;
+  G.nextTurnTime = nextMidnight();
+  G.lastSeen = Date.now();
+  addLog(`🌅 ${lang==='fr'?'Tour':'Turn'} ${G.turn} — +${prod.metal}🪨 +${prod.crystal}💎 +${prod.energy}⚡`, 'info');
+  await saveGame();
+  notify(t('turnStarted'));
+  updateUI();
+}
+
+function processMissionResult(m) {
+  if (m.type === 'explore') {
+    if (Math.random() > 0.3) {
+      const b = { metal:Math.floor(Math.random()*500+100), crystal:Math.floor(Math.random()*200+50) };
+      G.resources.metal += b.metal; G.resources.crystal += b.crystal;
+      addLog(`🔭 ${lang==='fr'?'Épave découverte':'Wreck found'} +${b.metal}🪨 +${b.crystal}💎`, 'victory');
+    } else addLog(`🔭 ${lang==='fr'?'Secteur vide':'Empty sector'}`, 'info');
+  } else if (m.type === 'raid') {
+    const p = totalFleetPower();
+    if (p.att > Math.floor(Math.random()*p.att*1.5)+100) {
+      const l = { metal:Math.floor(Math.random()*2000+500), crystal:Math.floor(Math.random()*800+200) };
+      G.resources.metal += l.metal; G.resources.crystal += l.crystal;
+      addLog(`💰 ${lang==='fr'?'Raid réussi':'Raid successful'} +${l.metal}🪨 +${l.crystal}💎`, 'victory');
+    } else {
+      const lost = Math.floor(Math.random()*Math.min(G.fleet.fighter+1,2));
+      G.fleet.fighter = Math.max(0, G.fleet.fighter-lost);
+      addLog(`💰 ${lang==='fr'?'Raid échoué':'Raid failed'} −${lost} ${lang==='fr'?'chasseur(s)':'fighter(s)'}`, 'defeat');
+    }
+  } else if (m.type === 'attack') {
+    const p = totalFleetPower();
+    if (p.att > Math.floor(Math.random()*3000)+500) {
+      const l = { metal:Math.floor(Math.random()*5000+1000), crystal:Math.floor(Math.random()*2000+500) };
+      G.resources.metal += l.metal; G.resources.crystal += l.crystal;
+      addLog(`⚔️ ${lang==='fr'?'Assaut VICTORIEUX':'VICTORIOUS assault'} +${l.metal}🪨 +${l.crystal}💎`, 'victory');
+    } else {
+      const lost = Math.floor(Math.random()*Math.min(G.fleet.fighter+1,5));
+      G.fleet.fighter = Math.max(0, G.fleet.fighter-lost);
+      addLog(`⚔️ ${lang==='fr'?'Assaut repoussé':'Assault repelled'} −${lost} ${lang==='fr'?'chasseur(s)':'fighter(s)'}`, 'defeat');
+    }
+  } else if (m.type === 'defend') {
+    G.defense.shields++;
+    addLog(`🛡️ ${lang==='fr'?'Patrouille terminée. Boucliers +1':'Patrol complete. Shields +1'}`, 'info');
+  }
+}
+
+function addLog(msg, type) {
+  G.log.unshift({ msg, type, turn: G.turn });
+  if (G.log.length > 50) G.log = G.log.slice(0,50);
+}
+
+// ========== UI ==========
+function fmt(n) {
+  if (n >= 1000000) return (n/1000000).toFixed(1)+'M';
+  if (n >= 1000) return (n/1000).toFixed(1)+'k';
+  return Math.floor(n).toString();
+}
+
+function showPage(id) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  const page = document.getElementById('page-'+id);
+  const nav = document.getElementById('nav-'+id);
+  if (page) page.classList.add('active');
+  if (nav) nav.classList.add('active');
+  renderPage(id);
+}
+
+function renderPage(id) {
+  if (id==='buildings') renderBuildings();
+  else if (id==='research') renderResearch();
+  else if (id==='fleet') renderFleet();
+  else if (id==='missions') renderMissions();
+  else if (id==='log') renderLog();
+  else if (id==='galaxy') renderGalaxy();
+  else updateUI();
+}
+
+function updateUI() {
+  if (!G) return;
+  const prod = getProduction();
+  document.getElementById('metal-val').textContent = fmt(G.resources.metal);
+  document.getElementById('crystal-val').textContent = fmt(G.resources.crystal);
+  document.getElementById('energy-val').textContent = fmt(G.resources.energy);
+  document.getElementById('metal-rate').textContent = '+'+fmt(prod.metal)+t('perTurn');
+  document.getElementById('crystal-rate').textContent = '+'+fmt(prod.crystal)+t('perTurn');
+  document.getElementById('energy-rate').textContent = '+'+fmt(prod.energy)+t('perTurn');
+  document.getElementById('turn-display').textContent = (lang==='fr'?'Tour ':'Turn ')+G.turn;
+  document.getElementById('planet-name-display').textContent = G.planetName;
+
+  // Nav labels
+  document.querySelectorAll('[data-tkey]').forEach(el => { el.textContent = t(el.dataset.tkey); });
+
+  // Overview stats
+  const els = {
+    'stat-metal-rate': '+'+fmt(prod.metal),
+    'stat-crystal-rate': '+'+fmt(prod.crystal),
+    'stat-energy-rate': '+'+fmt(prod.energy),
+    'stat-shields': G.defense.shields,
+    'stat-cannons': G.defense.cannons,
+    'stat-rockets': G.defense.rockets,
+    'stat-fighters': G.fleet.fighter,
+    'stat-cruisers': G.fleet.cruiser,
+    'stat-battleships': G.fleet.battleship,
+    'stat-mine-metal': G.buildings.mine_metal,
+    'stat-mine-crystal': G.buildings.mine_crystal,
+    'stat-power': G.buildings.power_plant,
+    'planet-name-big': G.planetName,
+    'planet-emoji': G.planetEmoji,
+    'planet-coords': t('planetCoords')+' '+G.sector,
+    'commander-name-display': G.commanderName,
+  };
+  Object.entries(els).forEach(([id,val]) => { const el=document.getElementById(id); if(el) el.textContent=val; });
+
+  // Build queue
+  const qEl = document.getElementById('build-queue-display');
+  if (qEl) {
+    qEl.innerHTML = G.buildQueue.length === 0
+      ? `<div class="queue-empty">${t('noQueue')}</div>`
+      : G.buildQueue.map(i=>`<div class="queue-item"><div class="queue-dot"></div><span>${i.name}${i.qty?' x'+i.qty:''}</span></div>`).join('');
+  }
+
+  // Active missions
+  const mEl = document.getElementById('active-missions-display');
+  if (mEl) {
+    mEl.innerHTML = G.activeMissions.length === 0
+      ? `<div class="queue-empty">${t('noMission')}</div>`
+      : G.activeMissions.map(m=>`<div class="queue-item"><div class="queue-dot" style="background:var(--accent2)"></div><span>${m.name}</span></div>`).join('');
+  }
+}
+
+function updateCountdown() {
+  if (!G) return;
+  const remaining = Math.max(0, G.nextTurnTime - Date.now());
+  if (remaining === 0) {
+    document.getElementById('countdown').textContent = '00:00:00';
+    processTurn();
+    return;
+  }
+  const h = Math.floor(remaining/3600000);
+  const m = Math.floor((remaining%3600000)/60000);
+  const s = Math.floor((remaining%60000)/1000);
+  document.getElementById('countdown').textContent =
+    String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
+}
+
+function renderBuildings() {
+  const grid = document.getElementById('buildings-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  BUILDINGS.forEach(b => {
+    const lv = G.buildings[b.id];
+    const cost = getBuildingCost(b, lv);
+    const afford = canAfford(cost);
+    const inQueue = G.buildQueue.some(q=>q.id===b.id);
+    const bonusText = b.production ? `+${b.prodBase*(lv+1)} ${t(b.production)}${t('perTurn')} (${lang==='fr'?'nv':'lv'}.${lv+1})` : '';
+
+    grid.innerHTML += `<div class="card">
+      <div class="card-header">
+        <span class="card-icon">${b.icon}</span>
+        <div><div class="card-title">${getBName(b)}</div></div>
+        <div class="card-level">${t('level')}${lv}</div>
+      </div>
+      <div class="card-desc">${lang==='fr'?b.descFr:b.descEn}</div>
+      ${bonusText?`<div class="card-bonus">📈 ${bonusText}</div>`:''}
+      <div class="card-cost">
+        ${cost.metal?`<span class="cost-item metal ${G.resources.metal<cost.metal?'cant-afford':''}">🪨 ${fmt(cost.metal)}</span>`:''}
+        ${cost.crystal?`<span class="cost-item crystal ${G.resources.crystal<cost.crystal?'cant-afford':''}">💎 ${fmt(cost.crystal)}</span>`:''}
+        ${cost.energy?`<span class="cost-item energy ${G.resources.energy<cost.energy?'cant-afford':''}">⚡ ${fmt(cost.energy)}</span>`:''}
+      </div>
+      <button class="btn" onclick="window._queueBuilding('${b.id}')" ${(!afford||inQueue)?'disabled':''}>
+        ${inQueue?t('inQueue'):t('build')}
+      </button>
+    </div>`;
+  });
+}
+
+function renderResearch() {
+  const grid = document.getElementById('research-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  RESEARCH.forEach(r => {
+    const lv = G.research[r.id];
+    const cost = getResearchCost(r);
+    const afford = canAfford(cost);
+    const meetsR = meetsReqs(r.requires);
+    const inQueue = G.buildQueue.some(q=>q.id===r.id);
+    const maxed = lv >= 5;
+    let reqText = '';
+    if (r.requires && !meetsR) {
+      reqText = Object.entries(r.requires).map(([k,v])=>{
+        const bn = BUILDINGS.find(b=>b.id===k); const rn = RESEARCH.find(rr=>rr.id===k);
+        return `${bn?getBName(bn):rn?getRName(rn):k} ${t('level')}${v}`;
+      }).join(', ');
+    }
+    grid.innerHTML += `<div class="card ${!meetsR?'tech-locked':''}">
+      <div class="card-header">
+        <span class="card-icon">${r.icon}</span>
+        <div><div class="card-title">${getRName(r)}</div></div>
+        <div class="card-level">${t('level')}${lv}</div>
+      </div>
+      <div class="card-desc">${lang==='fr'?r.descFr:r.descEn}</div>
+      <div class="card-bonus">🔬 ${lang==='fr'?r.bonusFr:r.bonusEn}</div>
+      ${!meetsR?`<div style="font-size:.8rem;color:var(--danger);margin-bottom:10px">🔒 ${t('requires')} : ${reqText}</div>`:''}
+      <div class="card-cost">
+        ${cost.crystal?`<span class="cost-item crystal ${G.resources.crystal<cost.crystal?'cant-afford':''}">💎 ${fmt(cost.crystal)}</span>`:''}
+        ${cost.metal?`<span class="cost-item metal ${G.resources.metal<cost.metal?'cant-afford':''}">🪨 ${fmt(cost.metal)}</span>`:''}
+        ${cost.energy?`<span class="cost-item energy ${G.resources.energy<cost.energy?'cant-afford':''}">⚡ ${fmt(cost.energy)}</span>`:''}
+      </div>
+      <button class="btn" onclick="window._queueResearch('${r.id}')" ${(!afford||!meetsR||inQueue||maxed)?'disabled':''}>
+        ${maxed?t('maxed'):inQueue?t('researching'):!meetsR?t('locked'):t('build')}
+      </button>
+    </div>`;
+  });
+}
+
+function renderFleet() {
+  const grid = document.getElementById('fleet-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  SHIPS.forEach(s => {
+    const meetsR = meetsReqs(s.requires);
+    const afford = canAfford(s.cost);
+    let reqText = '';
+    if (s.requires && !meetsR) {
+      reqText = Object.entries(s.requires).map(([k,v])=>{
+        const bn = BUILDINGS.find(b=>b.id===k); const rn = RESEARCH.find(r=>r.id===k);
+        return `${bn?getBName(bn):rn?getRName(rn):k} ${t('level')}${v}`;
+      }).join(', ');
+    }
+    const wB = 1+G.research['weapons']*0.25;
+    const sB = 1+G.research['shields']*0.25;
+    grid.innerHTML += `<div class="card ${!meetsR?'tech-locked':''}">
+      <div class="card-header">
+        <span class="card-icon">${s.icon}</span>
+        <div><div class="card-title">${getSName(s)}</div></div>
+        <div class="card-level" style="color:var(--accent3)">${G.fleet[s.id]||0}✈</div>
+      </div>
+      <div class="card-desc">${lang==='fr'?s.descFr:s.descEn}</div>
+      <div class="card-bonus">⚔️ ${t('attack')}: ${Math.floor(s.att*wB)} | 🛡️ ${t('defense')}: ${Math.floor(s.def*sB)}</div>
+      ${!meetsR?`<div style="font-size:.8rem;color:var(--danger);margin-bottom:10px">🔒 ${t('requires')} : ${reqText}</div>`:''}
+      <div class="card-cost">
+        ${s.cost.metal?`<span class="cost-item metal ${G.resources.metal<s.cost.metal?'cant-afford':''}">🪨 ${fmt(s.cost.metal)}</span>`:''}
+        ${s.cost.crystal?`<span class="cost-item crystal ${G.resources.crystal<s.cost.crystal?'cant-afford':''}">💎 ${fmt(s.cost.crystal)}</span>`:''}
+        ${s.cost.energy?`<span class="cost-item energy ${G.resources.energy<s.cost.energy?'cant-afford':''}">⚡ ${fmt(s.cost.energy)}</span>`:''}
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <button onclick="document.getElementById('qty-${s.id}').value=Math.max(1,+document.getElementById('qty-${s.id}').value-1)" style="background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:4px 10px;cursor:pointer;border-radius:2px">−</button>
+        <input id="qty-${s.id}" type="number" min="1" value="1" style="width:60px;text-align:center;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px;border-radius:2px;font-family:'Orbitron',monospace;font-size:.9rem">
+        <button onclick="document.getElementById('qty-${s.id}').value=+document.getElementById('qty-${s.id}').value+1" style="background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:4px 10px;cursor:pointer;border-radius:2px">+</button>
+        <span style="font-size:.8rem;color:var(--text2)">${t('qty')}</span>
+      </div>
+      <button class="btn orange" onclick="window._queueShip('${s.id}')" ${(!afford||!meetsR)?'disabled':''}>
+        ${!meetsR?t('locked'):t('order')}
+      </button>
+    </div>`;
+  });
+
+  // Fleet table
+  const tbody = document.getElementById('fleet-table-body');
+  if (tbody) {
+    const wB = 1+G.research['weapons']*0.25;
+    const sB = 1+G.research['shields']*0.25;
+    tbody.innerHTML = SHIPS.map(s=>`<tr>
+      <td>${s.icon} ${getSName(s)}</td>
+      <td style="font-family:'Orbitron',monospace;color:var(--accent)">${G.fleet[s.id]||0}</td>
+      <td style="color:var(--accent2)">${Math.floor(s.att*wB)}</td>
+      <td style="color:var(--crystal)">${Math.floor(s.def*sB)}</td>
+    </tr>`).join('');
+  }
+}
+
+function renderMissions() {
+  const grid = document.getElementById('missions-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  const totalFleet = Object.values(G.fleet).reduce((a,b)=>a+b,0);
+  const power = totalFleetPower();
+  MISSIONS.forEach(m => {
+    const hasFleet = totalFleet >= m.minShips;
+    const alreadyActive = G.activeMissions.some(am=>am.type===m.id);
+    grid.innerHTML += `<div class="card">
+      <div class="card-header">
+        <span class="card-icon">${m.icon}</span>
+        <div><div class="card-title">${getMName(m)}</div></div>
+      </div>
+      <div class="card-desc">${lang==='fr'?m.descFr:m.descEn}</div>
+      <div class="card-bonus">⚔️ ${t('attack')}: ${power.att} | 🛡️ ${t('defense')}: ${power.def}</div>
+      ${!hasFleet?`<div style="font-size:.8rem;color:var(--danger);margin-bottom:10px">🚀 ${lang==='fr'?'Requiert':'Requires'} ${m.minShips} ${lang==='fr'?'vaisseau(x)':'ship(s)'}</div>`:''}
+      <button class="btn orange" onclick="window._launchMission('${m.id}','${getMName(m)}')" ${(!hasFleet||alreadyActive)?'disabled':''}>
+        ${alreadyActive?t('inMission'):t('launch')}
+      </button>
+    </div>`;
+  });
+
+  const mEl = document.getElementById('active-missions-display');
+  if (mEl) {
+    mEl.innerHTML = G.activeMissions.length === 0
+      ? `<div class="queue-empty">${t('noMission')}</div>`
+      : G.activeMissions.map(m=>`<div class="queue-item"><div class="queue-dot" style="background:var(--accent2)"></div><span>${m.name}</span></div>`).join('');
+  }
+}
+
+async function renderGalaxy() {
+  const el = document.getElementById('galaxy-list');
+  if (!el) return;
+  el.innerHTML = `<div style="color:var(--text2);font-style:italic">${t('loading')}</div>`;
+  const players = await loadGalaxy();
+  if (players.length === 0) {
+    el.innerHTML = `<div class="queue-empty">${t('noPlayers')}</div>`;
+    return;
+  }
+  el.innerHTML = players.map(p => {
+    const power = { att: (p.fleet?.fighter||0)*50 + (p.fleet?.cruiser||0)*200 + (p.fleet?.battleship||0)*1000 };
+    return `<div class="card" style="margin-bottom:12px">
+      <div class="card-header">
+        <span class="card-icon">${p.planetEmoji||'🪐'}</span>
+        <div>
+          <div class="card-title">${p.planetName||'???'}</div>
+          <div style="font-size:.8rem;color:var(--text2)">${p.commanderName||'Commander'} · ${t('planetCoords')} ${p.sector||'?'}</div>
+        </div>
+        <div class="card-level" style="color:var(--accent2)">${lang==='fr'?'Tour':'Turn'} ${p.turn||1}</div>
+      </div>
+      <div style="display:flex;gap:20px;font-size:.85rem;margin-top:4px">
+        <span style="color:var(--metal)">🪨 ${fmt(p.resources?.metal||0)}</span>
+        <span style="color:var(--crystal)">💎 ${fmt(p.resources?.crystal||0)}</span>
+        <span style="color:var(--accent2)">⚔️ ${fmt(power.att)}</span>
+      </div>
+    </div>`;
+  }).join('');
+  document.getElementById('player-count').textContent = players.length + ' ' + t('playerCount');
+}
+
+function renderLog() {
+  const el = document.getElementById('log-display');
+  if (!el) return;
+  if (!G.log || G.log.length === 0) {
+    el.innerHTML = `<div class="queue-empty">${t('noLog')}</div>`; return;
+  }
+  el.innerHTML = G.log.map(l=>`
+    <div class="log-entry ${l.type}">
+      <div class="log-turn">${lang==='fr'?'TOUR':'TURN'} ${l.turn}</div>
+      ${l.msg}
+    </div>`).join('');
+}
+
+// ========== ACTIONS (exposed globally) ==========
+window._queueBuilding = async (id) => {
+  const b = BUILDINGS.find(x=>x.id===id);
+  const cost = getBuildingCost(b, G.buildings[id]);
+  if (!canAfford(cost)) { notify(t('insufficientRes'), true); return; }
+  if (G.buildQueue.some(q=>q.id===id)) { notify(t('alreadyQueued'), true); return; }
+  spend(cost);
+  G.buildQueue.push({ type:'building', id, name:`${getBName(b)} ${t('level')}${G.buildings[id]+1}` });
+  await saveGame(); updateUI(); renderBuildings();
+  notify(`${getBName(b)} ${t('buildQueued')}`);
+};
+
+window._queueResearch = async (id) => {
+  const r = RESEARCH.find(x=>x.id===id);
+  const cost = getResearchCost(r);
+  if (!canAfford(cost)) { notify(t('insufficientRes'), true); return; }
+  if (!meetsReqs(r.requires)) { notify(t('prereqNotMet'), true); return; }
+  if (G.buildQueue.some(q=>q.id===id)) { notify(t('alreadyQueued'), true); return; }
+  spend(cost);
+  G.buildQueue.push({ type:'research', id, name:getRName(r) });
+  await saveGame(); updateUI(); renderResearch();
+  notify(t('researchQueued'));
+};
+
+window._queueShip = async (id) => {
+  const s = SHIPS.find(x=>x.id===id);
+  const qty = parseInt(document.getElementById('qty-'+id)?.value)||1;
+  const cost = { metal:s.cost.metal*qty, crystal:s.cost.crystal*qty, energy:s.cost.energy*qty };
+  if (!canAfford(cost)) { notify(t('insufficientRes'), true); return; }
+  if (!meetsReqs(s.requires)) { notify(t('prereqNotMet'), true); return; }
+  spend(cost);
+  G.buildQueue.push({ type:'ship', id, name:getSName(s), qty });
+  await saveGame(); updateUI(); renderFleet();
+  notify(`${qty}x ${getSName(s)} ${t('shipQueued')}`);
+};
+
+window._launchMission = async (type, name) => {
+  if (G.activeMissions.some(m=>m.type===type)) { notify(t('alreadyMission'), true); return; }
+  G.activeMissions.push({ type, name });
+  await saveGame(); updateUI(); renderMissions();
+  notify(t('missionLaunched'));
+};
+
+window._showPage = showPage;
+
+window._toggleLang = () => {
+  lang = lang === 'fr' ? 'en' : 'fr';
+  localStorage.setItem('tlo_lang', lang);
+  document.getElementById('lang-btn').textContent = t('lang');
+  updateUI();
+  // re-render active page
+  const active = document.querySelector('.page.active');
+  if (active) renderPage(active.id.replace('page-',''));
+};
+
+window._logout = async () => {
+  await signOut(auth);
+  G = null; currentUser = null;
+  showAuthScreen();
+};
+
+// ========== AUTH ==========
+function showAuthScreen() {
+  document.getElementById('auth-screen').style.display = 'flex';
+  document.getElementById('game-screen').style.display = 'none';
+}
+function showGameScreen() {
+  document.getElementById('auth-screen').style.display = 'none';
+  document.getElementById('game-screen').style.display = 'flex';
+  updateUI();
+  showPage('overview');
+  setInterval(updateCountdown, 1000);
+  updateCountdown();
+}
+function showSetup() {
+  document.getElementById('auth-screen').style.display = 'none';
+  document.getElementById('game-screen').style.display = 'none';
+  document.getElementById('setup-overlay').style.display = 'flex';
+}
+
+window._login = async () => {
+  const email = document.getElementById('login-email').value.trim();
+  const pass = document.getElementById('login-pass').value;
+  const errEl = document.getElementById('auth-error');
+  const btn = document.querySelector('.auth-btn-primary');
+  btn.textContent = '...'; btn.disabled = true;
+  try {
+    const cred = await signInWithEmailAndPassword(auth, email, pass);
+    currentUser = cred.user;
+    const exists = await loadGame();
+    if (!exists) showSetup();
+    else showGameScreen();
+  } catch(e) {
+    errEl.textContent = t('errorLogin'); errEl.style.display='block';
+    btn.textContent = lang==='fr'?'CONNEXION':'SIGN IN';
+    btn.disabled = false;
+  }
+};
+
+window._register = async () => {
+  const email = document.getElementById('login-email').value.trim();
+  const pass = document.getElementById('login-pass').value;
+  const errEl = document.getElementById('auth-error');
+  const btn = document.querySelector('.auth-btn-secondary');
+  btn.textContent = '...'; btn.disabled = true;
+  try {
+    const cred = await createUserWithEmailAndPassword(auth, email, pass);
+    currentUser = cred.user;
+    showSetup();
+  } catch(e) {
+    errEl.textContent = t('errorRegister'); errEl.style.display='block';
+    btn.textContent = lang==='fr'?'CRÉER UN COMPTE':'CREATE ACCOUNT';
+    btn.disabled = false;
+  }
+};
+
+window._startGame = async () => {
+  const planetName = document.getElementById('planet-name-input').value.trim() || 'Nexara Prime';
+  const commanderName = document.getElementById('commander-name-input').value.trim() || 'Commander';
+  createNewGame(planetName, commanderName);
+  addLog(`🚀 ${lang==='fr'?'Empire fondé sur':'Empire founded on'} ${G.planetName}`, 'info');
+  await saveGame();
+  document.getElementById('setup-overlay').style.display = 'none';
+  showGameScreen();
+  notify(t('welcome'));
+};
+
+onAuthStateChanged(auth, async (user) => {
+  if (user && !currentUser) {
+    currentUser = user;
+    const exists = await loadGame();
+    if (!exists) showSetup();
+    else showGameScreen();
+  } else if (!user) {
+    showAuthScreen();
+  }
+});
+
+// ========== NOTIFICATIONS ==========
+let notifTimer;
+function notify(msg, err=false) {
+  const el = document.getElementById('notif');
+  el.textContent = msg;
+  el.className = 'notif'+(err?' error':'')+' show';
+  clearTimeout(notifTimer);
+  notifTimer = setTimeout(()=>el.classList.remove('show'), 3000);
+}
+window._notify = notify;
+
+</script>
+<style>
+  :root {
+    --bg:#03060f; --bg2:#060d1a; --panel:#0a1628; --panel2:#0d1e38;
+    --border:#1a3a5c; --accent:#00c8ff; --accent2:#ff6b35; --accent3:#7fff6b;
+    --metal:#8ab4d4; --crystal:#a78bfa; --energy:#fbbf24;
+    --text:#cde8ff; --text2:#6a9cc4; --danger:#ff4444;
+    --glow:0 0 20px rgba(0,200,255,0.3); --glow2:0 0 20px rgba(255,107,53,0.3);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font-family:'Rajdhani',sans-serif; font-size:16px; min-height:100vh; overflow-x:hidden; }
+  body::before {
+    content:''; position:fixed; inset:0; pointer-events:none; z-index:0;
+    background-image:
+      radial-gradient(1px 1px at 10% 20%,rgba(255,255,255,.6) 0%,transparent 100%),
+      radial-gradient(1px 1px at 30% 70%,rgba(255,255,255,.4) 0%,transparent 100%),
+      radial-gradient(1px 1px at 50% 40%,rgba(255,255,255,.5) 0%,transparent 100%),
+      radial-gradient(1px 1px at 70% 10%,rgba(255,255,255,.3) 0%,transparent 100%),
+      radial-gradient(1px 1px at 80% 60%,rgba(255,255,255,.5) 0%,transparent 100%),
+      radial-gradient(2px 2px at 25% 35%,rgba(0,200,255,.3) 0%,transparent 100%),
+      radial-gradient(2px 2px at 75% 75%,rgba(167,139,250,.3) 0%,transparent 100%),
+      radial-gradient(1px 1px at 90% 30%,rgba(255,255,255,.4) 0%,transparent 100%),
+      radial-gradient(1px 1px at 45% 15%,rgba(255,255,255,.4) 0%,transparent 100%),
+      radial-gradient(1px 1px at 60% 85%,rgba(255,255,255,.5) 0%,transparent 100%);
+  }
+  body::after { content:''; position:fixed; inset:0; background:repeating-linear-gradient(0deg,rgba(0,0,0,0) 0px,rgba(0,0,0,0) 1px,rgba(0,0,0,.015) 1px,rgba(0,0,0,.015) 2px); pointer-events:none; z-index:1000; }
+
+  /* AUTH SCREEN */
+  #auth-screen {
+    position:fixed; inset:0; z-index:500; display:flex; align-items:center; justify-content:center;
+    background:radial-gradient(ellipse at center, rgba(0,30,60,.8) 0%, rgba(3,6,15,.95) 70%);
+  }
+  .auth-box {
+    background:var(--panel2); border:1px solid var(--border); border-radius:6px;
+    padding:40px; width:380px; text-align:center;
+    box-shadow:0 0 60px rgba(0,200,255,.1);
+  }
+  .auth-logo { font-family:'Orbitron',monospace; font-size:1.6rem; font-weight:900; color:var(--accent); text-shadow:var(--glow); letter-spacing:4px; margin-bottom:4px; }
+  .auth-logo span { color:var(--accent2); }
+  .auth-tagline { font-size:.85rem; color:var(--text2); margin-bottom:28px; letter-spacing:1px; }
+  .auth-input {
+    width:100%; background:var(--bg); border:1px solid var(--border); padding:12px 14px;
+    color:var(--text); font-family:'Rajdhani',sans-serif; font-size:1rem; border-radius:3px;
+    margin-bottom:12px; outline:none; display:block;
+  }
+  .auth-input:focus { border-color:var(--accent); }
+  .auth-input::placeholder { color:var(--text2); }
+  .auth-btn {
+    width:100%; padding:12px; font-family:'Rajdhani',sans-serif; font-weight:700;
+    font-size:.9rem; letter-spacing:2px; cursor:pointer; border-radius:3px; transition:all .2s;
+  }
+  .auth-btn-primary { background:linear-gradient(135deg,rgba(0,200,255,.15),rgba(0,200,255,.05)); border:1px solid var(--accent); color:var(--accent); margin-bottom:10px; }
+  .auth-btn-primary:hover { background:rgba(0,200,255,.25); box-shadow:var(--glow); }
+  .auth-btn-secondary { background:transparent; border:1px solid var(--border); color:var(--text2); }
+  .auth-btn-secondary:hover { border-color:var(--text2); color:var(--text); }
+  .auth-divider { color:var(--text2); font-size:.8rem; margin:8px 0; }
+  .auth-error { color:var(--danger); font-size:.85rem; margin-bottom:12px; display:none; }
+  .lang-select { position:absolute; top:20px; right:20px; }
+
+  /* SETUP OVERLAY */
+  #setup-overlay {
+    position:fixed; inset:0; z-index:400; display:none; align-items:center; justify-content:center;
+    background:rgba(0,0,0,.8);
+  }
+  .setup-box { background:var(--panel2); border:1px solid var(--border); border-radius:6px; padding:36px; width:400px; }
+  .setup-box h2 { font-family:'Orbitron',monospace; font-size:1rem; color:var(--accent); margin-bottom:8px; letter-spacing:2px; }
+  .setup-box p { color:var(--text2); font-size:.9rem; margin-bottom:20px; line-height:1.5; }
+
+  /* GAME SCREEN */
+  #game-screen { display:none; flex-direction:column; min-height:100vh; position:relative; z-index:10; }
+
+  header { background:linear-gradient(180deg,rgba(0,200,255,.05) 0%,transparent 100%); border-bottom:1px solid var(--border); padding:12px 24px; display:flex; align-items:center; justify-content:space-between; }
+  .logo { font-family:'Orbitron',monospace; font-weight:900; font-size:1.3rem; letter-spacing:4px; color:var(--accent); text-shadow:var(--glow); }
+  .logo span { color:var(--accent2); }
+  .turn-info { text-align:center; }
+  .turn-label { font-family:'Orbitron',monospace; font-size:.65rem; color:var(--text2); letter-spacing:2px; }
+  .turn-number { font-family:'Orbitron',monospace; font-size:1.1rem; color:var(--accent); font-weight:700; }
+  .next-turn-box { text-align:right; }
+  .next-turn-label { font-size:.75rem; color:var(--text2); letter-spacing:1px; }
+  #countdown { font-family:'Orbitron',monospace; font-size:1.1rem; color:var(--accent2); text-shadow:var(--glow2); font-weight:700; }
+  .header-actions { display:flex; gap:10px; align-items:center; }
+  .hdr-btn { background:transparent; border:1px solid var(--border); color:var(--text2); padding:6px 12px; font-family:'Rajdhani',sans-serif; font-size:.8rem; cursor:pointer; border-radius:3px; letter-spacing:1px; transition:all .2s; }
+  .hdr-btn:hover { border-color:var(--text); color:var(--text); }
+
+  .resources-bar { background:var(--panel); border-bottom:1px solid var(--border); padding:10px 24px; display:flex; gap:28px; align-items:center; }
+  .resource { display:flex; align-items:center; gap:8px; }
+  .resource-icon { font-size:1.1rem; }
+  .resource-name { font-size:.7rem; color:var(--text2); letter-spacing:1px; text-transform:uppercase; }
+  .resource-value { font-family:'Orbitron',monospace; font-size:.95rem; font-weight:700; }
+  .resource-rate { font-size:.65rem; color:var(--accent3); }
+  .res-metal .resource-value { color:var(--metal); }
+  .res-crystal .resource-value { color:var(--crystal); }
+  .res-energy .resource-value { color:var(--energy); }
+  .planet-name-bar { margin-left:auto; font-family:'Orbitron',monospace; font-size:.75rem; color:var(--text2); }
+  .planet-name-bar span { color:var(--accent); font-weight:700; }
+
+  .main { display:flex; flex:1; }
+  nav { width:190px; background:var(--panel); border-right:1px solid var(--border); padding:16px 0; flex-shrink:0; }
+  .nav-section { padding:6px 16px; font-size:.6rem; color:var(--text2); letter-spacing:2px; text-transform:uppercase; margin-top:12px; }
+  .nav-btn { display:flex; align-items:center; gap:10px; width:100%; padding:10px 16px; background:none; border:none; color:var(--text); cursor:pointer; font-family:'Rajdhani',sans-serif; font-size:.95rem; font-weight:600; letter-spacing:1px; transition:all .2s; border-left:3px solid transparent; }
+  .nav-btn:hover { background:rgba(0,200,255,.05); color:var(--accent); }
+  .nav-btn.active { background:rgba(0,200,255,.08); color:var(--accent); border-left-color:var(--accent); }
+  .nav-icon { font-size:1rem; width:20px; text-align:center; }
+
+  .content { flex:1; padding:24px; overflow-y:auto; }
+  .page { display:none; } .page.active { display:block; }
+  .page-title { font-family:'Orbitron',monospace; font-size:1rem; font-weight:700; color:var(--accent); letter-spacing:3px; text-transform:uppercase; margin-bottom:4px; }
+  .page-subtitle { font-size:.85rem; color:var(--text2); margin-bottom:24px; }
+
+  .cards-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(270px,1fr)); gap:16px; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:4px; padding:20px; position:relative; overflow:hidden; transition:border-color .2s,box-shadow .2s; }
+  .card::before { content:''; position:absolute; top:0; left:0; right:0; height:2px; background:linear-gradient(90deg,transparent,var(--accent),transparent); opacity:0; transition:opacity .2s; }
+  .card:hover { border-color:rgba(0,200,255,.4); box-shadow:var(--glow); }
+  .card:hover::before { opacity:1; }
+  .card-header { display:flex; align-items:center; gap:12px; margin-bottom:12px; }
+  .card-icon { font-size:1.7rem; }
+  .card-title { font-family:'Orbitron',monospace; font-size:.8rem; font-weight:700; color:var(--text); letter-spacing:1px; }
+  .card-level { margin-left:auto; background:var(--panel2); border:1px solid var(--border); padding:2px 8px; border-radius:2px; font-family:'Orbitron',monospace; font-size:.7rem; color:var(--accent2); }
+  .card-desc { font-size:.85rem; color:var(--text2); line-height:1.4; margin-bottom:12px; }
+  .card-bonus { font-size:.8rem; color:var(--accent3); margin-bottom:12px; }
+  .card-cost { display:flex; gap:12px; margin-bottom:12px; font-size:.8rem; flex-wrap:wrap; }
+  .cost-item { display:flex; align-items:center; gap:4px; }
+  .cost-item.metal { color:var(--metal); } .cost-item.crystal { color:var(--crystal); } .cost-item.energy { color:var(--energy); }
+  .cost-item.cant-afford { opacity:.35; text-decoration:line-through; }
+  .tech-locked { opacity:.5; }
+
+  .btn { width:100%; padding:10px; background:linear-gradient(135deg,rgba(0,200,255,.1),rgba(0,200,255,.05)); border:1px solid var(--accent); color:var(--accent); font-family:'Rajdhani',sans-serif; font-size:.9rem; font-weight:700; letter-spacing:2px; text-transform:uppercase; cursor:pointer; border-radius:2px; transition:all .2s; }
+  .btn:hover:not(:disabled) { background:rgba(0,200,255,.2); box-shadow:var(--glow); }
+  .btn:disabled { opacity:.3; cursor:not-allowed; border-color:var(--text2); color:var(--text2); }
+  .btn.orange { border-color:var(--accent2); color:var(--accent2); background:linear-gradient(135deg,rgba(255,107,53,.1),rgba(255,107,53,.05)); }
+  .btn.orange:hover:not(:disabled) { background:rgba(255,107,53,.2); box-shadow:var(--glow2); }
+
+  .queue-box { background:var(--panel); border:1px solid var(--border); border-radius:4px; padding:16px; margin-bottom:24px; }
+  .queue-title { font-family:'Orbitron',monospace; font-size:.7rem; color:var(--text2); letter-spacing:2px; text-transform:uppercase; margin-bottom:12px; }
+  .queue-item { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid rgba(255,255,255,.05); font-size:.85rem; }
+  .queue-item:last-child { border-bottom:none; }
+  .queue-dot { width:6px; height:6px; border-radius:50%; background:var(--accent); flex-shrink:0; animation:pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.3} }
+  .queue-empty { color:var(--text2); font-size:.85rem; font-style:italic; }
+
+  .fleet-table { width:100%; border-collapse:collapse; margin-bottom:24px; }
+  .fleet-table th { text-align:left; padding:10px 12px; font-family:'Orbitron',monospace; font-size:.65rem; color:var(--text2); letter-spacing:2px; border-bottom:1px solid var(--border); }
+  .fleet-table td { padding:10px 12px; border-bottom:1px solid rgba(255,255,255,.04); font-size:.9rem; }
+  .fleet-table tr:hover td { background:rgba(0,200,255,.03); }
+
+  .overview-grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:24px; }
+  .overview-panel { background:var(--panel); border:1px solid var(--border); border-radius:4px; padding:20px; }
+  .overview-panel h3 { font-family:'Orbitron',monospace; font-size:.75rem; color:var(--text2); letter-spacing:2px; margin-bottom:14px; text-transform:uppercase; }
+  .stat-row { display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid rgba(255,255,255,.04); font-size:.9rem; }
+  .stat-row:last-child { border-bottom:none; }
+  .stat-label { color:var(--text2); } .stat-value { font-weight:600; color:var(--text); }
+
+  .planet-visual { text-align:center; padding:24px; background:var(--panel); border:1px solid var(--border); border-radius:4px; margin-bottom:24px; position:relative; overflow:hidden; }
+  .planet-visual::after { content:''; position:absolute; inset:0; background:radial-gradient(circle at 30% 40%,rgba(0,200,255,.05) 0%,transparent 60%); }
+  .planet-emoji { font-size:5rem; display:block; margin-bottom:8px; filter:drop-shadow(0 0 20px rgba(0,150,255,.5)); animation:float 4s ease-in-out infinite; }
+  @keyframes float { 0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)} }
+
+  .log-entry { padding:8px 12px; border-left:2px solid var(--border); margin-bottom:8px; font-size:.85rem; color:var(--text2); line-height:1.4; background:rgba(255,255,255,.02); border-radius:0 2px 2px 0; }
+  .log-entry.victory { border-left-color:var(--accent3); color:var(--accent3); }
+  .log-entry.defeat { border-left-color:var(--danger); color:#ff8888; }
+  .log-entry.info { border-left-color:var(--accent); color:var(--text); }
+  .log-turn { font-family:'Orbitron',monospace; font-size:.6rem; color:var(--text2); margin-bottom:2px; opacity:.7; }
+
+  .notif { position:fixed; top:80px; right:24px; background:var(--panel2); border:1px solid var(--accent); border-radius:4px; padding:12px 20px; font-size:.9rem; color:var(--text); box-shadow:var(--glow); z-index:100; opacity:0; transform:translateX(20px); transition:all .3s; max-width:300px; }
+  .notif.show { opacity:1; transform:translateX(0); }
+  .notif.error { border-color:var(--danger); box-shadow:0 0 20px rgba(255,68,68,.3); }
+
+  .setup-input { width:100%; background:var(--bg); border:1px solid var(--border); padding:11px 13px; color:var(--text); font-family:'Rajdhani',sans-serif; font-size:1rem; border-radius:3px; margin-bottom:12px; outline:none; display:block; }
+  .setup-input:focus { border-color:var(--accent); }
+  .setup-input::placeholder { color:var(--text2); }
+
+  @media(max-width:768px){
+    nav{width:55px;} .nav-btn span:not(.nav-icon){display:none;} .nav-section{display:none;}
+    .overview-grid{grid-template-columns:1fr;}
+    .resources-bar{flex-wrap:wrap;gap:16px;}
+    .planet-name-bar{display:none;}
+  }
+</style>
+</head>
+<body>
+
+<!-- NOTIFICATION -->
+<div class="notif" id="notif"></div>
+
+<!-- AUTH SCREEN -->
+<div id="auth-screen">
+  <div style="position:absolute;top:20px;right:20px">
+    <button class="hdr-btn" id="auth-lang-btn" onclick="
+      const l = localStorage.getItem('tlo_lang')||'fr';
+      const nl = l==='fr'?'en':'fr';
+      localStorage.setItem('tlo_lang',nl);
+      location.reload();
+    ">EN</button>
+  </div>
+  <div class="auth-box">
+    <div class="auth-logo">THE LAST <span>ORBIT</span></div>
+    <div class="auth-tagline" id="auth-tagline">La galaxie vous attend, Commandant.</div>
+    <div class="auth-error" id="auth-error"></div>
+    <input class="auth-input" id="login-email" type="email" placeholder="Email">
+    <input class="auth-input" id="login-pass" type="password" placeholder="Mot de passe">
+    <button class="auth-btn auth-btn-primary" onclick="window._login()">CONNEXION</button>
+    <div class="auth-divider">—</div>
+    <button class="auth-btn auth-btn-secondary" onclick="window._register()">CRÉER UN COMPTE</button>
+  </div>
+</div>
+
+<!-- SETUP OVERLAY -->
+<div id="setup-overlay">
+  <div class="setup-box">
+    <h2>BIENVENUE, COMMANDANT</h2>
+    <p>Nommez votre commandant et votre planète pour débuter la conquête.</p>
+    <input class="setup-input" id="commander-name-input" type="text" placeholder="Nom du commandant" maxlength="20">
+    <input class="setup-input" id="planet-name-input" type="text" placeholder="Nom de la planète" maxlength="20">
+    <button class="btn" onclick="window._startGame()">FONDER L'EMPIRE</button>
+  </div>
+</div>
+
+<!-- GAME SCREEN -->
+<div id="game-screen" style="flex-direction:column;">
+
+  <header>
+    <div class="logo">THE LAST <span>ORBIT</span></div>
+    <div class="turn-info">
+      <div class="turn-label" data-tkey="turnLabel">TOUR EN COURS</div>
+      <div class="turn-number" id="turn-display">Tour 1</div>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+      <div class="next-turn-box">
+        <div class="next-turn-label" data-tkey="nextTurn">PROCHAIN TOUR DANS</div>
+        <div id="countdown">—</div>
+      </div>
+      <div class="header-actions">
+        <span style="font-size:.75rem;color:var(--text2)" id="player-count"></span>
+        <button class="hdr-btn" id="lang-btn" onclick="window._toggleLang()">EN</button>
+        <button class="hdr-btn" onclick="window._logout()" data-tkey="logout">DÉCONNEXION</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="resources-bar">
+    <div class="resource res-metal">
+      <span class="resource-icon">🪨</span>
+      <div>
+        <div class="resource-name" data-tkey="metal">Métal</div>
+        <div class="resource-value" id="metal-val">0</div>
+        <div class="resource-rate" id="metal-rate">+0/tour</div>
+      </div>
+    </div>
+    <div class="resource res-crystal">
+      <span class="resource-icon">💎</span>
+      <div>
+        <div class="resource-name" data-tkey="crystal">Cristal</div>
+        <div class="resource-value" id="crystal-val">0</div>
+        <div class="resource-rate" id="crystal-rate">+0/tour</div>
+      </div>
+    </div>
+    <div class="resource res-energy">
+      <span class="resource-icon">⚡</span>
+      <div>
+        <div class="resource-name" data-tkey="energy">Énergie</div>
+        <div class="resource-value" id="energy-val">0</div>
+        <div class="resource-rate" id="energy-rate">+0/tour</div>
+      </div>
+    </div>
+    <div class="planet-name-bar">🪐 <span id="planet-name-display">—</span> · <span id="commander-name-display" style="color:var(--text2)"></span></div>
+  </div>
+
+  <div class="main">
+    <nav>
+      <div class="nav-section">EMPIRE</div>
+      <button class="nav-btn active" onclick="window._showPage('overview')" id="nav-overview"><span class="nav-icon">🌍</span><span data-tkey="overview">Vue Globale</span></button>
+      <button class="nav-btn" onclick="window._showPage('buildings')" id="nav-buildings"><span class="nav-icon">🏗️</span><span data-tkey="buildings">Bâtiments</span></button>
+      <button class="nav-btn" onclick="window._showPage('research')" id="nav-research"><span class="nav-icon">🔬</span><span data-tkey="research">Recherche</span></button>
+      <div class="nav-section">GUERRE</div>
+      <button class="nav-btn" onclick="window._showPage('fleet')" id="nav-fleet"><span class="nav-icon">🚀</span><span data-tkey="fleet">Flotte</span></button>
+      <button class="nav-btn" onclick="window._showPage('missions')" id="nav-missions"><span class="nav-icon">⚔️</span><span data-tkey="missions">Missions</span></button>
+      <div class="nav-section">UNIVERS</div>
+      <button class="nav-btn" onclick="window._showPage('galaxy')" id="nav-galaxy"><span class="nav-icon">🌌</span><span data-tkey="galaxy">Galaxie</span></button>
+      <button class="nav-btn" onclick="window._showPage('log')" id="nav-log"><span class="nav-icon">📜</span><span data-tkey="log">Journal</span></button>
+    </nav>
+
+    <div class="content">
+
+      <!-- OVERVIEW -->
+      <div class="page active" id="page-overview">
+        <div class="page-title" data-tkey="overview">Vue Globale</div>
+        <div class="page-subtitle" id="overview-sub">État de votre empire</div>
+        <div class="planet-visual">
+          <span class="planet-emoji" id="planet-emoji">🪐</span>
+          <div style="font-family:'Orbitron',monospace;font-size:1rem;color:var(--accent)" id="planet-name-big">—</div>
+          <div style="font-size:.8rem;color:var(--text2);margin-top:4px" id="planet-coords">—</div>
+        </div>
+        <div class="overview-grid">
+          <div class="overview-panel">
+            <h3 data-tkey="production">Production par tour</h3>
+            <div class="stat-row"><span class="stat-label">🪨 <span data-tkey="metal">Métal</span></span><span class="stat-value" id="stat-metal-rate">0</span></div>
+            <div class="stat-row"><span class="stat-label">💎 <span data-tkey="crystal">Cristal</span></span><span class="stat-value" id="stat-crystal-rate">0</span></div>
+            <div class="stat-row"><span class="stat-label">⚡ <span data-tkey="energy">Énergie</span></span><span class="stat-value" id="stat-energy-rate">0</span></div>
+          </div>
+          <div class="overview-panel">
+            <h3 data-tkey="defenses">Défenses</h3>
+            <div class="stat-row"><span class="stat-label">🛡️ <span data-tkey="shields">Boucliers</span></span><span class="stat-value" id="stat-shields">0</span></div>
+            <div class="stat-row"><span class="stat-label">🔫 <span data-tkey="cannons">Canons laser</span></span><span class="stat-value" id="stat-cannons">0</span></div>
+            <div class="stat-row"><span class="stat-label">💥 <span data-tkey="rockets">Lance-roquettes</span></span><span class="stat-value" id="stat-rockets">0</span></div>
+          </div>
+          <div class="overview-panel">
+            <h3 data-tkey="fleetStats">Flotte</h3>
+            <div class="stat-row"><span class="stat-label">🔹 <span data-tkey="fighters">Chasseurs</span></span><span class="stat-value" id="stat-fighters">0</span></div>
+            <div class="stat-row"><span class="stat-label">🔸 <span data-tkey="cruisers">Croiseurs</span></span><span class="stat-value" id="stat-cruisers">0</span></div>
+            <div class="stat-row"><span class="stat-label">🔶 <span data-tkey="battleships">Cuirassés</span></span><span class="stat-value" id="stat-battleships">0</span></div>
+          </div>
+          <div class="overview-panel">
+            <h3 data-tkey="buildingLevels">Bâtiments</h3>
+            <div class="stat-row"><span class="stat-label" data-tkey="mineMetal">Mine de métal</span><span class="stat-value" id="stat-mine-metal">0</span></div>
+            <div class="stat-row"><span class="stat-label" data-tkey="mineCrystal">Mine de cristal</span><span class="stat-value" id="stat-mine-crystal">0</span></div>
+            <div class="stat-row"><span class="stat-label" data-tkey="powerPlant">Centrale</span><span class="stat-value" id="stat-power">0</span></div>
+          </div>
+        </div>
+        <div class="queue-box">
+          <div class="queue-title" data-tkey="noQueue">File de construction</div>
+          <div id="build-queue-display"><div class="queue-empty">—</div></div>
+        </div>
+      </div>
+
+      <!-- BUILDINGS -->
+      <div class="page" id="page-buildings">
+        <div class="page-title" data-tkey="buildings">Bâtiments</div>
+        <div class="page-subtitle">Construction au prochain tour.</div>
+        <div class="cards-grid" id="buildings-grid"></div>
+      </div>
+
+      <!-- RESEARCH -->
+      <div class="page" id="page-research">
+        <div class="page-title" data-tkey="research">Recherche</div>
+        <div class="page-subtitle">Développez vos technologies.</div>
+        <div class="cards-grid" id="research-grid"></div>
+      </div>
+
+      <!-- FLEET -->
+      <div class="page" id="page-fleet">
+        <div class="page-title" data-tkey="fleet">Chantier Naval</div>
+        <div class="page-subtitle">Vaisseaux disponibles au prochain tour.</div>
+        <div class="cards-grid" id="fleet-grid"></div>
+        <div style="margin-top:24px">
+          <div class="page-title" style="font-size:.85rem;margin-bottom:12px" data-tkey="fleetStats">Flotte</div>
+          <table class="fleet-table">
+            <thead><tr>
+              <th>Vaisseau</th><th>Qté</th><th data-tkey="attack">ATT</th><th data-tkey="defense">DÉF</th>
+            </tr></thead>
+            <tbody id="fleet-table-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- MISSIONS -->
+      <div class="page" id="page-missions">
+        <div class="page-title" data-tkey="missions">Missions</div>
+        <div class="page-subtitle">Résultats au prochain tour.</div>
+        <div class="cards-grid" id="missions-grid"></div>
+        <div style="margin-top:24px">
+          <div class="page-title" style="font-size:.85rem;margin-bottom:12px">Missions actives</div>
+          <div id="active-missions-display"><div class="queue-empty">—</div></div>
+        </div>
+      </div>
+
+      <!-- GALAXY -->
+      <div class="page" id="page-galaxy">
+        <div class="page-title" data-tkey="galaxy_title">Galaxie</div>
+        <div class="page-subtitle" data-tkey="galaxy_sub">Les empires actifs dans l'univers.</div>
+        <div id="galaxy-list"></div>
+      </div>
+
+      <!-- LOG -->
+      <div class="page" id="page-log">
+        <div class="page-title" data-tkey="log">Journal</div>
+        <div class="page-subtitle">Historique de vos actions.</div>
+        <div id="log-display"></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+  // Relay functions — fix pour script type="module" qui charge en async
+  // Les onclick HTML ne peuvent pas appeler directement les fonctions du module
+  function _login() { if(window._login) window._login(); else setTimeout(_login, 100); }
+  function _register() { if(window._register) window._register(); else setTimeout(_register, 100); }
+  function _startGame() { if(window._startGame) window._startGame(); else setTimeout(_startGame, 100); }
+  function _logout() { if(window._logout) window._logout(); else setTimeout(_logout, 100); }
+  function _toggleLang() { if(window._toggleLang) window._toggleLang(); else setTimeout(_toggleLang, 100); }
+  function _showPage(p) { if(window._showPage) window._showPage(p); else setTimeout(()=>_showPage(p), 100); }
+  function _queueBuilding(id) { if(window._queueBuilding) window._queueBuilding(id); else setTimeout(()=>_queueBuilding(id), 100); }
+  function _queueResearch(id) { if(window._queueResearch) window._queueResearch(id); else setTimeout(()=>_queueResearch(id), 100); }
+  function _queueShip(id) { if(window._queueShip) window._queueShip(id); else setTimeout(()=>_queueShip(id), 100); }
+  function _launchMission(id,name) { if(window._launchMission) window._launchMission(id,name); else setTimeout(()=>_launchMission(id,name), 100); }
+</script>
+<script>
+  // Fix auth screen lang button
+  const sl = localStorage.getItem('tlo_lang')||'fr';
+  document.getElementById('auth-lang-btn').textContent = sl==='fr'?'EN':'FR';
+  if(sl==='en'){
+    document.getElementById('auth-tagline').textContent='The galaxy awaits, Commander.';
+    document.querySelector('.auth-btn-primary').textContent='SIGN IN';
+    document.querySelector('.auth-btn-secondary').textContent='CREATE ACCOUNT';
+    document.getElementById('login-email').placeholder='Email';
+    document.getElementById('login-pass').placeholder='Password';
+  }
+</script>
+</body>
+</html>
