@@ -7,7 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600&display=swap" rel="stylesheet">
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc, serverTimestamp, addDoc, query, where, onSnapshot, deleteDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 
 // ========== FIREBASE CONFIG ==========
@@ -101,6 +101,25 @@ const T = {
     mineMetal: "Mine de métal",
     mineCrystal: "Mine de cristal",
     powerPlant: "Centrale",
+    attackPlayer: "⚔️ ATTAQUER",
+    attackTitle: "Lancer une attaque",
+    attackDesc: "Choisissez les vaisseaux à envoyer au combat.",
+    attackSend: "ENVOYER L'ESCADRON",
+    attackPending: "⏳ Attaque en cours...",
+    attackCancelled: "Attaque annulée (flotte insuffisante).",
+    attackNoFleet: "Vous n'avez aucun vaisseau !",
+    attackSelf: "Vous ne pouvez pas vous attaquer vous-même.",
+    attackAlready: "Une attaque est déjà en cours contre cette cible.",
+    combatVictory: "VICTOIRE",
+    combatDefeat: "DÉFAITE",
+    combatResult: "Rapport de combat",
+    combatAttack: "Puissance d'attaque",
+    combatDefense: "Puissance de défense",
+    combatLoot: "Butin",
+    combatLosses: "Pertes",
+    incomingAttack: "⚠️ ATTAQUE ENTRANTE",
+    noAttacks: "Aucune attaque en cours.",
+    attacks: "Attaques",
   },
   en: {
     title: "THE LAST ORBIT",
@@ -176,6 +195,25 @@ const T = {
     mineMetal: "Metal mine",
     mineCrystal: "Crystal mine",
     powerPlant: "Power plant",
+    attackPlayer: "⚔️ ATTACK",
+    attackTitle: "Launch an attack",
+    attackDesc: "Choose ships to send into battle.",
+    attackSend: "SEND SQUADRON",
+    attackPending: "⏳ Attack in progress...",
+    attackCancelled: "Attack cancelled (insufficient fleet).",
+    attackNoFleet: "You have no ships!",
+    attackSelf: "You cannot attack yourself.",
+    attackAlready: "An attack is already underway against this target.",
+    combatVictory: "VICTORY",
+    combatDefeat: "DEFEAT",
+    combatResult: "Combat report",
+    combatAttack: "Attack power",
+    combatDefense: "Defense power",
+    combatLoot: "Loot",
+    combatLosses: "Losses",
+    incomingAttack: "⚠️ INCOMING ATTACK",
+    noAttacks: "No attacks in progress.",
+    attacks: "Attacks",
   }
 };
 
@@ -244,7 +282,7 @@ async function loadGalaxy() {
   try {
     const snap = await getDocs(collection(db, 'players'));
     const players = [];
-    snap.forEach(d => { if (d.id !== currentUser?.uid) players.push(d.data()); });
+    snap.forEach(d => { if (d.id !== currentUser?.uid) players.push({ ...d.data(), uid: d.id }); });
     return players;
   } catch(e) { return []; }
 }
@@ -358,6 +396,9 @@ async function processTurn() {
   for (const m of G.activeMissions) processMissionResult(m);
   G.activeMissions = [];
 
+  // Traitement des combats multijoueur
+  await processIncomingAttacks();
+
   G.turn++;
   G.nextTurnTime = nextMidnight();
   G.lastSeen = Date.now();
@@ -406,6 +447,226 @@ function addLog(msg, type) {
   G.log.unshift({ msg, type, turn: G.turn });
   if (G.log.length > 50) G.log = G.log.slice(0,50);
 }
+
+// ========== COMBAT SYSTEM ==========
+
+// Calcule la puissance d'une flotte donnée (objet {fighter, cruiser, battleship, colonizer})
+function calcFleetPower(fleet, researchWeapons, researchShields) {
+  const wB = 1 + (researchWeapons||0) * 0.25;
+  const sB = 1 + (researchShields||0) * 0.25;
+  let att = 0, def = 0;
+  att += (fleet.fighter||0)    * 50  * wB;
+  att += (fleet.cruiser||0)    * 200 * wB;
+  att += (fleet.battleship||0) * 1000 * wB;
+  def += (fleet.fighter||0)    * 20  * sB;
+  def += (fleet.cruiser||0)    * 100 * sB;
+  def += (fleet.battleship||0) * 500 * sB;
+  return { att: Math.floor(att), def: Math.floor(def) };
+}
+
+// Calcule la puissance défensive totale d'un joueur (flotte + défenses planétaires)
+function calcPlayerDefensePower(playerData) {
+  const sB = 1 + (playerData.research?.shields||0) * 0.25;
+  const fleet = playerData.fleet || {};
+  let def = 0;
+  def += (fleet.fighter||0)    * 20  * sB;
+  def += (fleet.cruiser||0)    * 100 * sB;
+  def += (fleet.battleship||0) * 500 * sB;
+  def += (playerData.defense?.cannons||0) * 30;
+  def += (playerData.defense?.rockets||0) * 60;
+  def += (playerData.defense?.shields||0) * 50;
+  return Math.floor(def);
+}
+
+// Résout un combat : retourne le rapport complet
+function resolveCombat(attackerFleet, attackerResearch, defenderData) {
+  const atkPower = calcFleetPower(attackerFleet, attackerResearch?.weapons||0, attackerResearch?.shields||0);
+  const defPower = calcPlayerDefensePower(defenderData);
+
+  // Ajout d'un facteur aléatoire ±20%
+  const atkRoll = atkPower.att * (0.8 + Math.random() * 0.4);
+  const defRoll = defPower * (0.8 + Math.random() * 0.4);
+
+  const victory = atkRoll > defRoll;
+  const ratio = victory ? atkRoll / Math.max(defRoll, 1) : defRoll / Math.max(atkRoll, 1);
+
+  // Pertes proportionnelles à l'écart de force
+  const atkLossRate = victory
+    ? Math.max(0.05, Math.min(0.4, 0.4 / ratio))
+    : Math.max(0.4, Math.min(0.9, 0.9 / ratio));
+  const defLossRate = victory
+    ? Math.max(0.3, Math.min(0.8, 0.3 * ratio))
+    : Math.max(0.05, Math.min(0.3, 0.05 * ratio));
+
+  const atkLosses = {};
+  for (const [type, qty] of Object.entries(attackerFleet)) {
+    atkLosses[type] = Math.floor(qty * atkLossRate);
+  }
+  const defLosses = {};
+  const defFleet = defenderData.fleet || {};
+  for (const [type, qty] of Object.entries(defFleet)) {
+    defLosses[type] = Math.floor(qty * defLossRate);
+  }
+
+  // Butin : 20% des stocks si victoire
+  const loot = { metal: 0, crystal: 0 };
+  if (victory) {
+    loot.metal   = Math.floor((defenderData.resources?.metal||0)  * 0.20);
+    loot.crystal = Math.floor((defenderData.resources?.crystal||0) * 0.20);
+  }
+
+  return { victory, atkPower: Math.floor(atkRoll), defPower: Math.floor(defRoll), atkLosses, defLosses, loot };
+}
+
+// Traite toutes les attaques au passage de tour
+async function processIncomingAttacks() {
+  if (!currentUser) return;
+  try {
+    // Attaques REÇUES par ce joueur
+    const snap = await getDocs(query(collection(db, 'attacks'),
+      where('targetUid', '==', currentUser.uid),
+      where('status', '==', 'pending')
+    ));
+    for (const attackSnap of snap.docs) {
+      const atk = attackSnap.data();
+      const report = resolveCombat(atk.fleet, atk.attackerResearch, G);
+
+      // Applique les conséquences sur le défenseur
+      for (const [type, lost] of Object.entries(report.defLosses)) {
+        if (G.fleet[type] !== undefined) G.fleet[type] = Math.max(0, G.fleet[type] - lost);
+      }
+      if (report.victory) {
+        G.resources.metal   = Math.max(0, G.resources.metal   - report.loot.metal);
+        G.resources.crystal = Math.max(0, G.resources.crystal - report.loot.crystal);
+      }
+
+      const fmtLocal = (n) => n >= 1000 ? (n/1000).toFixed(1)+'k' : String(n);
+      const outcomeLabel = report.victory ? (lang==='fr'?'🔴 DÉFAITE':'🔴 DEFEAT') : (lang==='fr'?'🟢 REPOUSSÉ':'🟢 REPELLED');
+      const lootMsg = report.victory ? ` — −${fmtLocal(report.loot.metal)}🪨 −${fmtLocal(report.loot.crystal)}💎` : '';
+      const defLossMsg = Object.entries(report.defLosses).filter(([,v])=>v>0).map(([k,v])=>`-${v} ${k}`).join(' ');
+      addLog(`${outcomeLabel} — ${atk.attackerName} (${atk.attackerPlanet}) ⚔️${fmtLocal(report.atkPower)} vs 🛡️${fmtLocal(report.defPower)}${lootMsg}${defLossMsg?' | pertes: '+defLossMsg:''}`, report.victory ? 'defeat' : 'victory');
+
+      await updateDoc(doc(db, 'attacks', attackSnap.id), {
+        status: 'resolved',
+        result: { victory: report.victory, atkPower: report.atkPower, defPower: report.defPower, atkLosses: report.atkLosses, defLosses: report.defLosses, loot: report.loot }
+      });
+    }
+
+    // Attaques ENVOYÉES — récupère les résultats
+    const sentSnap = await getDocs(query(collection(db, 'attacks'),
+      where('attackerUid', '==', currentUser.uid),
+      where('status', '==', 'resolved')
+    ));
+    for (const attackSnap of sentSnap.docs) {
+      const atk = attackSnap.data();
+      const r = atk.result;
+      const fmtLocal = (n) => n >= 1000 ? (n/1000).toFixed(1)+'k' : String(n);
+
+      for (const [type, lost] of Object.entries(r.atkLosses||{})) {
+        if (G.fleet[type] !== undefined) G.fleet[type] = Math.max(0, G.fleet[type] - lost);
+      }
+      if (r.victory) {
+        G.resources.metal   += r.loot?.metal  || 0;
+        G.resources.crystal += r.loot?.crystal || 0;
+      }
+
+      const outcomeLabel = r.victory ? (lang==='fr'?'🟢 VICTOIRE':'🟢 VICTORY') : (lang==='fr'?'🔴 DÉFAITE':'🔴 DEFEAT');
+      const lootMsg = r.victory ? ` — +${fmtLocal(r.loot?.metal||0)}🪨 +${fmtLocal(r.loot?.crystal||0)}💎` : '';
+      const atkLossMsg = Object.entries(r.atkLosses||{}).filter(([,v])=>v>0).map(([k,v])=>`-${v} ${k}`).join(' ');
+      addLog(`${outcomeLabel} vs ${atk.targetName} (${atk.targetPlanet}) ⚔️${fmtLocal(r.atkPower)} vs 🛡️${fmtLocal(r.defPower)}${lootMsg}${atkLossMsg?' | pertes: '+atkLossMsg:''}`, r.victory ? 'victory' : 'defeat');
+
+      await deleteDoc(doc(db, 'attacks', attackSnap.id));
+    }
+  } catch(e) { console.error('Combat processing error:', e); }
+}
+
+// Ouvre le modal d'attaque
+window._openAttackModal = (targetUid, targetName, targetPlanet) => {
+  if (!G) return;
+  const totalFleet = Object.values(G.fleet).reduce((a,b)=>a+b,0);
+  if (totalFleet === 0) { notify(t('attackNoFleet'), true); return; }
+
+  window._attackTarget = { uid: targetUid, name: targetName, planet: targetPlanet };
+  window._attackFleet  = { fighter:0, cruiser:0, battleship:0, colonizer:0 };
+
+  document.getElementById('attack-modal-title').textContent =
+    `${t('attackTitle')} — ${targetPlanet}`;
+
+  const wB = 1+G.research['weapons']*0.25;
+  const sB = 1+G.research['shields']*0.25;
+  const rows = SHIPS.map(s => {
+    const owned = G.fleet[s.id]||0;
+    if (owned === 0) return '';
+    return `<div class="attack-ship-row">
+      <span style="font-size:1.5rem">${s.icon}</span>
+      <div style="flex:1">
+        <div style="font-family:'Orbitron',monospace;font-size:.75rem;color:var(--text)">${getSName(s)}</div>
+        <div style="font-size:.75rem;color:var(--text2)">⚔️ ${Math.floor(s.att*wB)} · 🛡️ ${Math.floor(s.def*sB)}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <button onclick="window._adjustAttackQty('${s.id}',-1)" style="background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:3px 10px;cursor:pointer;border-radius:2px">−</button>
+        <span id="atk-qty-${s.id}" style="font-family:'Orbitron',monospace;font-size:.9rem;color:var(--accent);min-width:24px;text-align:center">0</span>
+        <button onclick="window._adjustAttackQty('${s.id}',1)" style="background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:3px 10px;cursor:pointer;border-radius:2px">+</button>
+        <button onclick="window._setAttackMax('${s.id}',${owned})" style="background:transparent;border:1px solid var(--border);color:var(--text2);padding:3px 8px;cursor:pointer;border-radius:2px;font-size:.75rem">MAX</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('attack-ships-list').innerHTML = rows || `<div style="color:var(--text2)">${t('attackNoFleet')}</div>`;
+  document.getElementById('attack-power-preview').textContent = '⚔️ 0';
+  document.getElementById('attack-modal').style.display = 'flex';
+};
+
+window._adjustAttackQty = (shipId, delta) => {
+  const owned = G.fleet[shipId]||0;
+  const current = window._attackFleet[shipId]||0;
+  window._attackFleet[shipId] = Math.max(0, Math.min(owned, current + delta));
+  const el = document.getElementById('atk-qty-'+shipId);
+  if (el) el.textContent = window._attackFleet[shipId];
+  const preview = calcFleetPower(window._attackFleet, G.research.weapons||0, G.research.shields||0);
+  document.getElementById('attack-power-preview').textContent = `⚔️ ${preview.att >= 1000 ? (preview.att/1000).toFixed(1)+'k' : preview.att}`;
+};
+
+window._setAttackMax = (shipId, max) => {
+  window._attackFleet[shipId] = max;
+  const el = document.getElementById('atk-qty-'+shipId);
+  if (el) el.textContent = max;
+  const preview = calcFleetPower(window._attackFleet, G.research.weapons||0, G.research.shields||0);
+  document.getElementById('attack-power-preview').textContent = `⚔️ ${preview.att >= 1000 ? (preview.att/1000).toFixed(1)+'k' : preview.att}`;
+};
+
+window._closeAttackModal = () => { document.getElementById('attack-modal').style.display = 'none'; };
+
+window._confirmAttack = async () => {
+  if (!window._attackTarget) return;
+  const totalSent = Object.values(window._attackFleet||{}).reduce((a,b)=>a+b,0);
+  if (totalSent === 0) { notify(t('attackNoFleet'), true); return; }
+  try {
+    const existing = await getDocs(query(collection(db, 'attacks'),
+      where('attackerUid', '==', currentUser.uid),
+      where('targetUid', '==', window._attackTarget.uid),
+      where('status', '==', 'pending')
+    ));
+    if (!existing.empty) { notify(t('attackAlready'), true); return; }
+  } catch(e) {}
+  try {
+    await addDoc(collection(db, 'attacks'), {
+      attackerUid: currentUser.uid,
+      attackerName: G.commanderName,
+      attackerPlanet: G.planetName,
+      targetUid: window._attackTarget.uid,
+      targetName: window._attackTarget.name,
+      targetPlanet: window._attackTarget.planet,
+      fleet: { ...window._attackFleet },
+      attackerResearch: { ...G.research },
+      turn: G.turn,
+      status: 'pending',
+      createdAt: Date.now(),
+    });
+    notify(`🚀 ${lang==='fr'?'Escadron envoyé vers':'Squadron sent to'} ${window._attackTarget.planet} !`);
+    document.getElementById('attack-modal').style.display = 'none';
+  } catch(e) { notify(lang==='fr'?'Erreur d\'envoi':'Send error', true); }
+};
 
 // ========== UI ==========
 function fmt(n) {
@@ -670,6 +931,7 @@ async function renderGalaxy() {
   }
   el.innerHTML = players.map(p => {
     const power = { att: (p.fleet?.fighter||0)*50 + (p.fleet?.cruiser||0)*200 + (p.fleet?.battleship||0)*1000 };
+    const defPow = calcPlayerDefensePower(p);
     return `<div class="card" style="margin-bottom:12px">
       <div class="card-header">
         <span class="card-icon">${p.planetEmoji||'🪐'}</span>
@@ -679,11 +941,16 @@ async function renderGalaxy() {
         </div>
         <div class="card-level" style="color:var(--accent2)">${lang==='fr'?'Tour':'Turn'} ${p.turn||1}</div>
       </div>
-      <div style="display:flex;gap:20px;font-size:.85rem;margin-top:4px">
+      <div style="display:flex;gap:20px;font-size:.85rem;margin-top:4px;margin-bottom:14px">
         <span style="color:var(--metal)">🪨 ${fmt(p.resources?.metal||0)}</span>
         <span style="color:var(--crystal)">💎 ${fmt(p.resources?.crystal||0)}</span>
         <span style="color:var(--accent2)">⚔️ ${fmt(power.att)}</span>
+        <span style="color:var(--crystal)">🛡️ ${fmt(defPow)}</span>
       </div>
+      <button class="btn orange" style="width:auto;padding:8px 20px;font-size:.8rem"
+        onclick="window._openAttackModal('${p.uid||''}','${(p.commanderName||'').replace(/'/g,"\\'")}','${(p.planetName||'').replace(/'/g,"\\'")}')">
+        ${t('attackPlayer')}
+      </button>
     </div>`;
   }).join('');
   document.getElementById('player-count').textContent = players.length + ' ' + t('playerCount');
@@ -1247,6 +1514,7 @@ window._notify = notify;
   function _queueResearch(id) { if(window._queueResearch) window._queueResearch(id); else setTimeout(()=>_queueResearch(id), 100); }
   function _queueShip(id) { if(window._queueShip) window._queueShip(id); else setTimeout(()=>_queueShip(id), 100); }
   function _launchMission(id,name) { if(window._launchMission) window._launchMission(id,name); else setTimeout(()=>_launchMission(id,name), 100); }
+  function _openAttackModal(uid,name,planet) { if(window._openAttackModal) window._openAttackModal(uid,name,planet); else setTimeout(()=>_openAttackModal(uid,name,planet), 100); }
 </script>
 <script>
   // Fix auth screen lang button
@@ -1260,5 +1528,25 @@ window._notify = notify;
     document.getElementById('login-pass').placeholder='Password';
   }
 </script>
+<!-- ATTACK MODAL -->
+<div id="attack-modal" style="display:none;position:fixed;inset:0;z-index:300;align-items:center;justify-content:center;background:rgba(0,0,0,.75)">
+  <div style="background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:32px;width:480px;max-width:95vw;box-shadow:0 0 40px rgba(255,107,53,.2)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <div id="attack-modal-title" style="font-family:'Orbitron',monospace;font-size:.85rem;color:var(--accent2);letter-spacing:2px;text-transform:uppercase">Attaque</div>
+      <button onclick="window._closeAttackModal()" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:1.2rem">✕</button>
+    </div>
+    <div style="font-size:.8rem;color:var(--text2);margin-bottom:20px" id="attack-modal-sub">Choisissez les vaisseaux à envoyer au combat. Résultats au prochain tour.</div>
+    <div id="attack-ships-list" style="display:flex;flex-direction:column;gap:12px;margin-bottom:20px"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-top:1px solid var(--border);margin-bottom:16px">
+      <span style="font-size:.8rem;color:var(--text2)">Puissance d'attaque estimée :</span>
+      <span id="attack-power-preview" style="font-family:'Orbitron',monospace;color:var(--accent2);font-size:1rem;font-weight:700">⚔️ 0</span>
+    </div>
+    <div style="display:flex;gap:10px">
+      <button class="btn" style="border-color:var(--border);color:var(--text2)" onclick="window._closeAttackModal()">ANNULER</button>
+      <button class="btn orange" onclick="window._confirmAttack()">🚀 ENVOYER L'ESCADRON</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
