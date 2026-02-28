@@ -371,9 +371,12 @@ function nextMidnight() {
   d.setHours(24, 0, 0, 0);
   return d.getTime();
 }
+let _processingTurn = false;
 async function processTurn() {
   const now = Date.now();
   if (now < G.nextTurnTime) return;
+  if (_processingTurn) return;
+  _processingTurn = true;
   const prod = getProduction();
   G.resources.metal += prod.metal;
   G.resources.crystal += prod.crystal;
@@ -404,11 +407,10 @@ async function processTurn() {
   G.lastSeen = Date.now();
   addLog(`🌅 ${lang==='fr'?'Tour':'Turn'} ${G.turn} — +${prod.metal}🪨 +${prod.crystal}💎 +${prod.energy}⚡`, 'info');
   await saveGame();
+  _processingTurn = false;
   notify(t('turnStarted'));
   updateUI();
 }
-
-function processMissionResult(m) {
   if (m.type === 'explore') {
     if (Math.random() > 0.3) {
       const b = { metal:Math.floor(Math.random()*500+100), crystal:Math.floor(Math.random()*200+50) };
