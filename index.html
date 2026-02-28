@@ -962,7 +962,7 @@ window._createAlliance = async () => {
     await saveGame();
     notify(t('allianceCreated'));
     renderAlliance();
-  } catch(e) { notify('Erreur', true); }
+  } catch(e) { console.error('createAlliance error:', e); notify('Erreur : ' + (e.message || e.code || JSON.stringify(e)), true); }
 };
 
 window._requestJoin = async (allianceId) => {
