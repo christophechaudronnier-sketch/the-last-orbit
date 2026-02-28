@@ -952,8 +952,8 @@ window._createAlliance = async () => {
     const ref = await addDoc(collection(db, 'alliances'), {
       name,
       chiefUid: currentUser.uid,
-      chiefName: G.commander,
-      members: [{ uid: currentUser.uid, name: G.commander }],
+      chiefName: G.commanderName,
+      members: [{ uid: currentUser.uid, name: G.commanderName }],
       requests: [],
       messages: [],
       createdAt: serverTimestamp()
@@ -976,7 +976,7 @@ window._requestJoin = async (allianceId) => {
   const already = data.requests?.find(r => r.uid === currentUser.uid);
   if (already) { notify(t('allianceJoinRequested')); return; }
   await updateDoc(ref, {
-    requests: [...(data.requests||[]), { uid: currentUser.uid, name: G.commander }]
+    requests: [...(data.requests||[]), { uid: currentUser.uid, name: G.commanderName }]
   });
   notify(t('allianceJoinRequested'));
   renderAlliance();
@@ -1059,7 +1059,7 @@ window._sendAllianceMessage = async () => {
   const snap = await getDoc(ref);
   if (!snap.exists()) return;
   const msgs = snap.data().messages || [];
-  msgs.push({ uid: currentUser.uid, name: G.commander, text, ts: Date.now() });
+  msgs.push({ uid: currentUser.uid, name: G.commanderName, text, ts: Date.now() });
   // Garder max 100 messages
   if (msgs.length > 100) msgs.splice(0, msgs.length - 100);
   await updateDoc(ref, { messages: msgs });
