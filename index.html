@@ -239,10 +239,10 @@ const RESEARCH = [
 ];
 
 const SHIPS = [
-  { id:'fighter', icon:'🔹', nameFr:'Chasseur Léger', nameEn:'Light Fighter', descFr:"Rapide et peu coûteux.", descEn:"Fast and cheap.", cost:{metal:3000,crystal:1000,energy:0}, att:50, def:20, requires:{shipyard:1} },
-  { id:'cruiser', icon:'🔸', nameFr:'Croiseur', nameEn:'Cruiser', descFr:"Solide et puissant.", descEn:"Solid and powerful.", cost:{metal:20000,crystal:7000,energy:2000}, att:200, def:100, requires:{shipyard:2,combustion:1} },
-  { id:'battleship', icon:'🔶', nameFr:'Cuirassé', nameEn:'Battleship', descFr:"Le plus puissant de votre flotte.", descEn:"The most powerful in your fleet.", cost:{metal:45000,crystal:15000,energy:0}, att:1000, def:500, requires:{shipyard:3,hyperdrive:1} },
-  { id:'colonizer', icon:'📦', nameFr:'Vaisseau Cargo', nameEn:'Cargo Ship', descFr:"Transporte d'importantes ressources.", descEn:"Transports large amounts of resources.", cost:{metal:10000,crystal:20000,energy:1000}, att:5, def:10, requires:{shipyard:2} },
+  { id:'fighter', icon:'🔹', nameFr:'Chasseur Léger', nameEn:'Light Fighter', descFr:"Rapide et peu coûteux.", descEn:"Fast and cheap.", cost:{metal:800,crystal:300,energy:0}, att:50, def:20, requires:{shipyard:1} },
+  { id:'cruiser', icon:'🔸', nameFr:'Croiseur', nameEn:'Cruiser', descFr:"Solide et puissant.", descEn:"Solid and powerful.", cost:{metal:5000,crystal:1800,energy:500}, att:350, def:200, requires:{shipyard:2,combustion:1} },
+  { id:'battleship', icon:'🔶', nameFr:'Cuirassé', nameEn:'Battleship', descFr:"Le plus puissant de votre flotte.", descEn:"The most powerful in your fleet.", cost:{metal:12000,crystal:4000,energy:0}, att:1000, def:500, requires:{shipyard:3,hyperdrive:1} },
+  { id:'colonizer', icon:'📦', nameFr:'Vaisseau Cargo', nameEn:'Cargo Ship', descFr:"Transporte d'importantes ressources.", descEn:"Transports large amounts of resources.", cost:{metal:2500,crystal:5000,energy:250}, att:5, def:10, requires:{shipyard:2} },
 ];
 
 const MISSIONS = [
@@ -295,7 +295,7 @@ function createNewGame(planetName, commanderName) {
     commanderName: commanderName || 'Commander',
     turn: 1,
     nextTurnTime: nextMidnight(),
-    resources: { metal: 500, crystal: 200, energy: 100 },
+    resources: { metal: 3000, crystal: 1000, energy: 200 },
     buildings: { mine_metal:0, mine_crystal:0, power_plant:0, shipyard:0, defense_turret:0, research_lab:0 },
     research: { combustion:0, weapons:0, shields:0, espionage:0, hyperdrive:0 },
     fleet: { fighter:0, cruiser:0, battleship:0, colonizer:0 },
@@ -585,7 +585,7 @@ async function processIncomingAttacks() {
 }
 
 // Ouvre le modal d'attaque
-window._openAttackModalFn = (targetUid, targetName, targetPlanet) => {
+window._openAttackModal = (targetUid, targetName, targetPlanet) => {
   if (!G) return;
   const totalFleet = Object.values(G.fleet).reduce((a,b)=>a+b,0);
   if (totalFleet === 0) { notify(t('attackNoFleet'), true); return; }
@@ -974,7 +974,7 @@ function renderLog() {
 }
 
 // ========== ACTIONS (exposed globally) ==========
-window._queueBuildingFn = async (id) => {
+window._queueBuilding = async (id) => {
   const b = BUILDINGS.find(x=>x.id===id);
   const cost = getBuildingCost(b, G.buildings[id]);
   if (!canAfford(cost)) { notify(t('insufficientRes'), true); return; }
@@ -985,7 +985,7 @@ window._queueBuildingFn = async (id) => {
   notify(`${getBName(b)} ${t('buildQueued')}`);
 };
 
-window._queueResearchFn = async (id) => {
+window._queueResearch = async (id) => {
   const r = RESEARCH.find(x=>x.id===id);
   const cost = getResearchCost(r);
   if (!canAfford(cost)) { notify(t('insufficientRes'), true); return; }
@@ -997,7 +997,7 @@ window._queueResearchFn = async (id) => {
   notify(t('researchQueued'));
 };
 
-window._queueShipFn = async (id) => {
+window._queueShip = async (id) => {
   const s = SHIPS.find(x=>x.id===id);
   const qty = parseInt(document.getElementById('qty-'+id)?.value)||1;
   const cost = { metal:s.cost.metal*qty, crystal:s.cost.crystal*qty, energy:s.cost.energy*qty };
@@ -1009,16 +1009,16 @@ window._queueShipFn = async (id) => {
   notify(`${qty}x ${getSName(s)} ${t('shipQueued')}`);
 };
 
-window._launchMissionFn = async (type, name) => {
+window._launchMission = async (type, name) => {
   if (G.activeMissions.some(m=>m.type===type)) { notify(t('alreadyMission'), true); return; }
   G.activeMissions.push({ type, name });
   await saveGame(); updateUI(); renderMissions();
   notify(t('missionLaunched'));
 };
 
-window._showPageFn = showPage;
+window._showPage = showPage;
 
-window._toggleLangFn = () => {
+window._toggleLang = () => {
   lang = lang === 'fr' ? 'en' : 'fr';
   localStorage.setItem('tlo_lang', lang);
   document.getElementById('lang-btn').textContent = t('lang');
@@ -1028,7 +1028,7 @@ window._toggleLangFn = () => {
   if (active) renderPage(active.id.replace('page-',''));
 };
 
-window._logoutFn = async () => {
+window._logout = async () => {
   await signOut(auth);
   G = null; currentUser = null;
   showAuthScreen();
@@ -1053,7 +1053,7 @@ function showSetup() {
   document.getElementById('setup-overlay').style.display = 'flex';
 }
 
-window._loginFn = async () => {
+window._login = async () => {
   const email = document.getElementById('login-email').value.trim();
   const pass = document.getElementById('login-pass').value;
   const errEl = document.getElementById('auth-error');
@@ -1072,7 +1072,7 @@ window._loginFn = async () => {
   }
 };
 
-window._registerFn = async () => {
+window._register = async () => {
   const email = document.getElementById('login-email').value.trim();
   const pass = document.getElementById('login-pass').value;
   const errEl = document.getElementById('auth-error');
@@ -1089,7 +1089,7 @@ window._registerFn = async () => {
   }
 };
 
-window._startGameFn = async () => {
+window._startGame = async () => {
   const planetName = document.getElementById('planet-name-input').value.trim() || 'Nexara Prime';
   const commanderName = document.getElementById('commander-name-input').value.trim() || 'Commander';
   createNewGame(planetName, commanderName);
@@ -1508,17 +1508,17 @@ window._notify = notify;
 <script>
   // Relay functions — fix pour script type="module" qui charge en async
   // Les onclick HTML ne peuvent pas appeler directement les fonctions du module
-  function _login() { if(window._loginFn) window._loginFn(); else setTimeout(_login, 100); }
-  function _register() { if(window._registerFn) window._registerFn(); else setTimeout(_register, 100); }
-  function _startGame() { if(window._startGameFn) window._startGameFn(); else setTimeout(_startGame, 100); }
-  function _logout() { if(window._logoutFn) window._logoutFn(); else setTimeout(_logout, 100); }
-  function _toggleLang() { if(window._toggleLangFn) window._toggleLangFn(); else setTimeout(_toggleLang, 100); }
-  function _showPage(p) { if(window._showPageFn) window._showPageFn(p); else setTimeout(()=>_showPage(p), 100); }
-  function _queueBuilding(id) { if(window._queueBuildingFn) window._queueBuildingFn(id); else setTimeout(()=>_queueBuilding(id), 100); }
-  function _queueResearch(id) { if(window._queueResearchFn) window._queueResearchFn(id); else setTimeout(()=>_queueResearch(id), 100); }
-  function _queueShip(id) { if(window._queueShipFn) window._queueShipFn(id); else setTimeout(()=>_queueShip(id), 100); }
-  function _launchMission(id,name) { if(window._launchMissionFn) window._launchMissionFn(id,name); else setTimeout(()=>_launchMission(id,name), 100); }
-  function _openAttackModal(uid,name,planet) { if(window._openAttackModalFn) window._openAttackModalFn(uid,name,planet); else setTimeout(()=>_openAttackModal(uid,name,planet), 100); }
+  function _login() { if(window._login) window._login(); else setTimeout(_login, 100); }
+  function _register() { if(window._register) window._register(); else setTimeout(_register, 100); }
+  function _startGame() { if(window._startGame) window._startGame(); else setTimeout(_startGame, 100); }
+  function _logout() { if(window._logout) window._logout(); else setTimeout(_logout, 100); }
+  function _toggleLang() { if(window._toggleLang) window._toggleLang(); else setTimeout(_toggleLang, 100); }
+  function _showPage(p) { if(window._showPage) window._showPage(p); else setTimeout(()=>_showPage(p), 100); }
+  function _queueBuilding(id) { if(window._queueBuilding) window._queueBuilding(id); else setTimeout(()=>_queueBuilding(id), 100); }
+  function _queueResearch(id) { if(window._queueResearch) window._queueResearch(id); else setTimeout(()=>_queueResearch(id), 100); }
+  function _queueShip(id) { if(window._queueShip) window._queueShip(id); else setTimeout(()=>_queueShip(id), 100); }
+  function _launchMission(id,name) { if(window._launchMission) window._launchMission(id,name); else setTimeout(()=>_launchMission(id,name), 100); }
+  function _openAttackModal(uid,name,planet) { if(window._openAttackModal) window._openAttackModal(uid,name,planet); else setTimeout(()=>_openAttackModal(uid,name,planet), 100); }
 </script>
 <script>
   // Fix auth screen lang button
