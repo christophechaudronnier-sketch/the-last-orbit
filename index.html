@@ -583,7 +583,7 @@ async function processIncomingAttacks() {
 }
 
 // Ouvre le modal d'attaque
-window._openAttackModal = (targetUid, targetName, targetPlanet) => {
+window._openAttackModalFn = (targetUid, targetName, targetPlanet) => {
   if (!G) return;
   const totalFleet = Object.values(G.fleet).reduce((a,b)=>a+b,0);
   if (totalFleet === 0) { notify(t('attackNoFleet'), true); return; }
@@ -972,7 +972,7 @@ function renderLog() {
 }
 
 // ========== ACTIONS (exposed globally) ==========
-window._queueBuilding = async (id) => {
+window._queueBuildingFn = async (id) => {
   const b = BUILDINGS.find(x=>x.id===id);
   const cost = getBuildingCost(b, G.buildings[id]);
   if (!canAfford(cost)) { notify(t('insufficientRes'), true); return; }
@@ -983,7 +983,7 @@ window._queueBuilding = async (id) => {
   notify(`${getBName(b)} ${t('buildQueued')}`);
 };
 
-window._queueResearch = async (id) => {
+window._queueResearchFn = async (id) => {
   const r = RESEARCH.find(x=>x.id===id);
   const cost = getResearchCost(r);
   if (!canAfford(cost)) { notify(t('insufficientRes'), true); return; }
@@ -995,7 +995,7 @@ window._queueResearch = async (id) => {
   notify(t('researchQueued'));
 };
 
-window._queueShip = async (id) => {
+window._queueShipFn = async (id) => {
   const s = SHIPS.find(x=>x.id===id);
   const qty = parseInt(document.getElementById('qty-'+id)?.value)||1;
   const cost = { metal:s.cost.metal*qty, crystal:s.cost.crystal*qty, energy:s.cost.energy*qty };
@@ -1007,16 +1007,16 @@ window._queueShip = async (id) => {
   notify(`${qty}x ${getSName(s)} ${t('shipQueued')}`);
 };
 
-window._launchMission = async (type, name) => {
+window._launchMissionFn = async (type, name) => {
   if (G.activeMissions.some(m=>m.type===type)) { notify(t('alreadyMission'), true); return; }
   G.activeMissions.push({ type, name });
   await saveGame(); updateUI(); renderMissions();
   notify(t('missionLaunched'));
 };
 
-window._showPage = showPage;
+window._showPageFn = showPage;
 
-window._toggleLang = () => {
+window._toggleLangFn = () => {
   lang = lang === 'fr' ? 'en' : 'fr';
   localStorage.setItem('tlo_lang', lang);
   document.getElementById('lang-btn').textContent = t('lang');
@@ -1026,7 +1026,7 @@ window._toggleLang = () => {
   if (active) renderPage(active.id.replace('page-',''));
 };
 
-window._logout = async () => {
+window._logoutFn = async () => {
   await signOut(auth);
   G = null; currentUser = null;
   showAuthScreen();
@@ -1051,7 +1051,7 @@ function showSetup() {
   document.getElementById('setup-overlay').style.display = 'flex';
 }
 
-window._login = async () => {
+window._loginFn = async () => {
   const email = document.getElementById('login-email').value.trim();
   const pass = document.getElementById('login-pass').value;
   const errEl = document.getElementById('auth-error');
@@ -1070,7 +1070,7 @@ window._login = async () => {
   }
 };
 
-window._register = async () => {
+window._registerFn = async () => {
   const email = document.getElementById('login-email').value.trim();
   const pass = document.getElementById('login-pass').value;
   const errEl = document.getElementById('auth-error');
@@ -1087,7 +1087,7 @@ window._register = async () => {
   }
 };
 
-window._startGame = async () => {
+window._startGameFn = async () => {
   const planetName = document.getElementById('planet-name-input').value.trim() || 'Nexara Prime';
   const commanderName = document.getElementById('commander-name-input').value.trim() || 'Commander';
   createNewGame(planetName, commanderName);
@@ -1506,17 +1506,17 @@ window._notify = notify;
 <script>
   // Relay functions — fix pour script type="module" qui charge en async
   // Les onclick HTML ne peuvent pas appeler directement les fonctions du module
-  function _login() { if(window._login) window._login(); else setTimeout(_login, 100); }
-  function _register() { if(window._register) window._register(); else setTimeout(_register, 100); }
-  function _startGame() { if(window._startGame) window._startGame(); else setTimeout(_startGame, 100); }
-  function _logout() { if(window._logout) window._logout(); else setTimeout(_logout, 100); }
-  function _toggleLang() { if(window._toggleLang) window._toggleLang(); else setTimeout(_toggleLang, 100); }
-  function _showPage(p) { if(window._showPage) window._showPage(p); else setTimeout(()=>_showPage(p), 100); }
-  function _queueBuilding(id) { if(window._queueBuilding) window._queueBuilding(id); else setTimeout(()=>_queueBuilding(id), 100); }
-  function _queueResearch(id) { if(window._queueResearch) window._queueResearch(id); else setTimeout(()=>_queueResearch(id), 100); }
-  function _queueShip(id) { if(window._queueShip) window._queueShip(id); else setTimeout(()=>_queueShip(id), 100); }
-  function _launchMission(id,name) { if(window._launchMission) window._launchMission(id,name); else setTimeout(()=>_launchMission(id,name), 100); }
-  function _openAttackModal(uid,name,planet) { if(window._openAttackModal) window._openAttackModal(uid,name,planet); else setTimeout(()=>_openAttackModal(uid,name,planet), 100); }
+  function _login() { if(window._loginFn) window._loginFn(); else setTimeout(_login, 100); }
+  function _register() { if(window._registerFn) window._registerFn(); else setTimeout(_register, 100); }
+  function _startGame() { if(window._startGameFn) window._startGameFn(); else setTimeout(_startGame, 100); }
+  function _logout() { if(window._logoutFn) window._logoutFn(); else setTimeout(_logout, 100); }
+  function _toggleLang() { if(window._toggleLangFn) window._toggleLangFn(); else setTimeout(_toggleLang, 100); }
+  function _showPage(p) { if(window._showPageFn) window._showPageFn(p); else setTimeout(()=>_showPage(p), 100); }
+  function _queueBuilding(id) { if(window._queueBuildingFn) window._queueBuildingFn(id); else setTimeout(()=>_queueBuilding(id), 100); }
+  function _queueResearch(id) { if(window._queueResearchFn) window._queueResearchFn(id); else setTimeout(()=>_queueResearch(id), 100); }
+  function _queueShip(id) { if(window._queueShipFn) window._queueShipFn(id); else setTimeout(()=>_queueShip(id), 100); }
+  function _launchMission(id,name) { if(window._launchMissionFn) window._launchMissionFn(id,name); else setTimeout(()=>_launchMission(id,name), 100); }
+  function _openAttackModal(uid,name,planet) { if(window._openAttackModalFn) window._openAttackModalFn(uid,name,planet); else setTimeout(()=>_openAttackModal(uid,name,planet), 100); }
 </script>
 <script>
   // Fix auth screen lang button
