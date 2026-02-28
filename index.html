@@ -131,7 +131,7 @@ const T = {
     colonizeSend: "ENVOYER LE COLONISATEUR",
     colonizeNoShip: "Vous n\'avez pas de vaisseau colonisateur disponible !",
     colonizeAlready: "Une colonisation est déjà en cours.",
-    colonizeMax: "Vous avez atteint le maximum de 3 planètes.",
+    colonizeMax: "Vous avez atteint le maximum de planètes. Recherchez la Technologie de Colonisation pour débloquer plus.",
     colonizeLaunched: "Colonisateur envoyé ! Résultats au prochain tour.",
     colonizeSuccess: "🌍 Nouvelle planète colonisée !",
     selectPlanet: "Planète active :",
@@ -303,7 +303,7 @@ const T = {
     colonizeSend: "SEND COLONIZER",
     colonizeNoShip: "You have no colonizer ship available!",
     colonizeAlready: "A colonization is already in progress.",
-    colonizeMax: "You have reached the maximum of 3 planets.",
+    colonizeMax: "You've reached your planet limit. Research Colonization Technology to unlock more.",
     colonizeLaunched: "Colonizer sent! Results next turn.",
     colonizeSuccess: "🌍 New planet colonized!",
     selectPlanet: "Active planet:",
@@ -393,6 +393,7 @@ const RESEARCH = [
   { id:'shields', icon:'🛡️', nameFr:'Technologie des Boucliers', nameEn:'Shield Technology', descFr:"Renforce les boucliers de votre flotte.", descEn:"Reinforces fleet shields.", costBase:{metal:200,crystal:600,energy:0}, requires:{research_lab:2}, bonusFr:"Défense +25%", bonusEn:"Defense +25%" },
   { id:'espionage', icon:'👁️', nameFr:"Technologie d'Espionnage", nameEn:'Espionage Technology', descFr:"Permet de sonder les systèmes ennemis.", descEn:"Allows scouting enemy systems.", costBase:{metal:0,crystal:1000,energy:0}, requires:{research_lab:3}, bonusFr:"Missions d'espionnage", bonusEn:"Espionage missions" },
   { id:'hyperdrive', icon:'🌌', nameFr:'Hyperpropulsion', nameEn:'Hyperdrive', descFr:"Permet de construire des cuirassés.", descEn:"Enables battleship construction.", costBase:{metal:0,crystal:2000,energy:600}, requires:{research_lab:4,combustion:1}, bonusFr:"Déblocage Cuirassés", bonusEn:"Unlocks Battleships" },
+  { id:'colonization', icon:'🌍', nameFr:'Technologie de Colonisation', nameEn:'Colonization Technology', descFr:"Permet de coloniser des planètes vides. Nv.1 → 2 planètes, Nv.2 → 3 planètes.", descEn:"Allows colonizing empty planets. Lv.1 → 2 planets, Lv.2 → 3 planets.", costBase:{metal:1000,crystal:800,energy:0}, requires:{research_lab:2}, maxLevel:2, bonusFr:"Slot de planète supplémentaire", bonusEn:"Additional planet slot" },
 ];
 
 const SHIPS = [
@@ -528,6 +529,13 @@ function getResearchCost(r) {
     energy: Math.floor(r.costBase.energy * Math.pow(2, lv)),
   };
 }
+// Retourne le nombre max de planètes selon le niveau de recherche colonisation
+function maxPlanets() {
+  if (!G) return 1;
+  const lvl = G.research?.colonization || 0;
+  return 1 + lvl; // nv.0=1, nv.1=2, nv.2=3
+}
+
 function getProduction() {
   const prod = { metal:20, crystal:10, energy:10 };
   (G.planets||[]).forEach(planet => {
@@ -616,7 +624,7 @@ async function processTurn() {
   // Traiter la colonisation en cours
   if (G.pendingColonization) {
     const pc = G.pendingColonization;
-    if (G.planets.length < 3) {
+    if (G.planets.length < maxPlanets()) {
       const emojis = ['🪐','🌍','🌑','🌕','🔴','🟤','🔵'];
       const newPlanet = {
         ...makePlanet(pc.planetName, emojis[Math.floor(Math.random()*emojis.length)], pc.sector, false),
@@ -1523,11 +1531,23 @@ async function renderGalaxy() {
     });
   }
 
-  // Rendu HTML de la carte hexagonale
-  const HEX_SIZE = 34; // px, rayon du cercle inscrit
+  // Taille des hexagones calculée dynamiquement pour tenir dans la page sans scrollbar
+  // La zone utile = largeur de la fenêtre - largeur nav (~220px) - marges (~40px)
+  const availW = Math.min(window.innerWidth - 260, 700);
+  const availH = Math.min(window.innerHeight - 280, 560);
+  // Largeur totale grille = COLS * HEX_W * 0.75 + HEX_W * 0.25
+  // On résout : availW = COLS * SIZE*2*0.75 + SIZE*2*0.25 = SIZE*(COLS*1.5+0.5)
+  const sizeByW = availW / (COLS * 1.5 + 0.5);
+  // Hauteur totale grille = ROWS * HEX_H + HEX_H*0.5
+  // HEX_H = sqrt(3)*SIZE → SIZE = availH / (sqrt(3)*(ROWS+0.5))
+  const sizeByH = availH / (Math.sqrt(3) * (ROWS + 0.5));
+  const HEX_SIZE = Math.floor(Math.min(sizeByW, sizeByH, 38));
   const HEX_W = HEX_SIZE * 2;
   const HEX_H = Math.sqrt(3) * HEX_SIZE;
   const OFFSET_X = HEX_W * 0.75;
+
+  const mapW = Math.ceil(COLS * OFFSET_X + HEX_W * 0.25 + 10);
+  const mapH = Math.ceil(ROWS * HEX_H + HEX_H * 0.5 + 10);
 
   let mapHTML = `
     <div style="margin-bottom:12px;display:flex;gap:16px;flex-wrap:wrap;align-items:center;font-size:.8rem">
@@ -1536,8 +1556,8 @@ async function renderGalaxy() {
       <span style="display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:14px;height:14px;background:rgba(255,107,53,.25);border:2px solid var(--accent2);border-radius:2px"></span> ${lang==='fr'?'Ennemi':'Enemy'}</span>
       <span style="display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:14px;height:14px;background:rgba(255,255,255,.04);border:2px solid rgba(255,255,255,.1);border-radius:2px"></span> ${t('emptyHex')}</span>
     </div>
-    <div style="position:relative;overflow-x:auto;overflow-y:auto;max-height:520px;padding:10px 0 10px 10px">
-    <div style="position:relative;width:${Math.ceil(COLS * OFFSET_X + HEX_W * 0.25 + 10)}px;height:${Math.ceil(ROWS * HEX_H + HEX_H * 0.5 + 10)}px">`;
+    <div style="position:relative;overflow:visible;padding:4px">
+    <div style="position:relative;width:${mapW}px;height:${mapH}px">`;
 
   for (let row = 0; row < ROWS; row++) {
     for (let col = 0; col < COLS; col++) {
@@ -1551,7 +1571,7 @@ async function renderGalaxy() {
 
       if (!cell) {
         // Case vide — colonisable
-        const canCol = G.planets.length < 3 && G.planets.some(p=>(p.fleet||{}).colonizer>0) && !G.pendingColonization;
+        const canCol = G.planets.length < maxPlanets() && G.planets.some(p=>(p.fleet||{}).colonizer>0) && !G.pendingColonization;
         bg = 'rgba(255,255,255,.03)';
         border = 'rgba(255,255,255,.08)';
         emoji = '';
@@ -1597,7 +1617,7 @@ async function renderGalaxy() {
         display:flex;flex-direction:column;align-items:center;justify-content:center;
         cursor:${clickable?'pointer':'default'};
         transition:all .15s;
-        font-size:.65rem;
+        font-size:${Math.max(8, HEX_SIZE*0.38)}px;
         overflow:hidden;
         padding:2px;
       `.trim().replace(/\s+/g,' ');
@@ -1605,9 +1625,9 @@ async function renderGalaxy() {
       mapHTML += `<div data-hex="${key}" style="${hexStyle}" ${onclick?`onclick="${onclick}"`:''}
         onmouseenter="window._hexHover(this,true,'${key}')"
         onmouseleave="window._hexHover(this,false,'${key}')">
-        ${emoji ? `<span style="font-size:1.1rem;line-height:1">${emoji}</span>` : ''}
-        ${label ? `<span style="color:var(--text2);font-size:.55rem;text-align:center;max-width:90%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;margin-top:1px">${label}</span>` : ''}
-        ${!cell && G.planets.length<3 && G.planets.some(p=>(p.fleet||{}).colonizer>0) && !G.pendingColonization ? `<span style="font-size:.7rem;opacity:.4">+</span>` : ''}
+        ${emoji ? `<span style="font-size:${Math.max(10, HEX_SIZE*0.65)}px;line-height:1">${emoji}</span>` : ''}
+        ${label ? `<span style="color:var(--text2);font-size:${Math.max(7, HEX_SIZE*0.3)}px;text-align:center;max-width:90%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;margin-top:1px">${label}</span>` : ''}
+        ${!cell && G.planets.length < maxPlanets() && G.planets.some(p=>(p.fleet||{}).colonizer>0) && !G.pendingColonization ? `<span style="font-size:.7rem;opacity:.4">+</span>` : ''}
       </div>`;
     }
   }
@@ -1705,7 +1725,7 @@ window._openColonizeModal = (planetName, sector, emoji, col, row) => {
   window._colonizeHexCol = col !== undefined ? col : null;
   window._colonizeHexRow = row !== undefined ? row : null;
   if (!G) return;
-  if (G.planets.length >= 3) { notify(t('colonizeMax'), true); return; }
+  if (G.planets.length >= maxPlanets()) { notify(t('colonizeMax'), true); return; }
   if (G.pendingColonization) { notify(t('colonizeAlready'), true); return; }
   const hasColonizer = G.planets.some(p => (p.fleet||{}).colonizer > 0);
   if (!hasColonizer) { notify(t('colonizeNoShip'), true); return; }
@@ -1777,7 +1797,7 @@ function generateEmptyPlanets(occupiedSectors) {
 
 window._openColonizeModal = (planetName, sector, emoji) => {
   if (!G) return;
-  if (G.planets.length >= 3) { notify(t('colonizeMax'), true); return; }
+  if (G.planets.length >= maxPlanets()) { notify(t('colonizeMax'), true); return; }
   if (G.pendingColonization) { notify(t('colonizeAlready'), true); return; }
   // Vérifie si on a un colonisateur dispo sur n'importe quelle planète
   const hasColonizer = G.planets.some(p => (p.fleet||{}).colonizer > 0);
@@ -1797,7 +1817,7 @@ window._closeColonizeModal = () => {
 
 window._confirmColonize = async () => {
   if (!window._colonizeTarget) return;
-  if (G.planets.length >= 3) { notify(t('colonizeMax'), true); return; }
+  if (G.planets.length >= maxPlanets()) { notify(t('colonizeMax'), true); return; }
   if (G.pendingColonization) { notify(t('colonizeAlready'), true); return; }
   
   // Retire un colonisateur de la première planète qui en a un
