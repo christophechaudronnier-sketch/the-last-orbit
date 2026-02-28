@@ -1465,28 +1465,39 @@ async function renderGalaxy() {
   const cellMap = {};
 
   // Nos propres planètes
+  let ownNeedsSave = false;
   (G.planets||[]).forEach((p, i) => {
-    const col = p.hexCol ?? Math.floor(Math.random()*COLS);
-    const row = p.hexRow ?? Math.floor(Math.random()*ROWS);
-    cellMap[`${col},${row}`] = {
+    if (p.hexCol === null || p.hexCol === undefined || p.hexRow === null || p.hexRow === undefined) {
+      let col, row, tries = 0;
+      do { col = Math.floor(Math.random()*COLS); row = Math.floor(Math.random()*ROWS); tries++; }
+      while (cellMap[`${col},${row}`] && tries < 50);
+      p.hexCol = col; p.hexRow = row;
+      ownNeedsSave = true;
+    }
+    cellMap[`${p.hexCol},${p.hexRow}`] = {
       type: i === 0 ? 'own_main' : 'own_colony',
       planet: p,
       commander: G.commanderName,
       uid: null,
     };
   });
+  if (ownNeedsSave) await saveGame();
 
   // Planètes des autres joueurs
-  players.forEach(p => {
+  for (const p of players) {
     const planets = p.planets && p.planets.length > 0 ? p.planets : [{ name: p.planetName, emoji: p.planetEmoji, hexCol: null, hexRow: null, sector: p.sector }];
-    planets.forEach((pl, i) => {
+    let needsSave = false;
+    for (const pl of planets) {
       let col = pl.hexCol ?? null;
       let row = pl.hexRow ?? null;
-      // Si pas de coords ou collision, trouver une case libre
+      // Si pas de coords ou collision, trouver une case libre et sauvegarder
       if (col === null || row === null || cellMap[`${col},${row}`]) {
         let tries = 0;
         do { col = Math.floor(Math.random()*COLS); row = Math.floor(Math.random()*ROWS); tries++; }
         while (cellMap[`${col},${row}`] && tries < 50);
+        pl.hexCol = col;
+        pl.hexRow = row;
+        needsSave = true;
       }
       cellMap[`${col},${row}`] = {
         type: 'enemy',
@@ -1495,8 +1506,15 @@ async function renderGalaxy() {
         uid: p.uid,
         playerData: p,
       };
-    });
-  });
+    }
+    // Sauvegarder les nouvelles coordonnées dans Firebase pour qu'elles soient permanentes
+    if (needsSave && p.uid) {
+      try {
+        const playerRef = doc(db, 'players', p.uid);
+        await updateDoc(playerRef, { planets: planets });
+      } catch(e) { console.warn('Could not fix coords for', p.uid, e); }
+    }
+  }
 
   // Rendu HTML de la carte hexagonale
   const HEX_SIZE = 34; // px, rayon du cercle inscrit
