@@ -136,6 +136,12 @@ const T = {
     colonizeSuccess: "🌍 Nouvelle planète colonisée !",
     selectPlanet: "Planète active :",
     planetSlot: "Emplacement libre",
+    mapTitle: "Carte Galactique",
+    mapSub: "Cliquez sur une case pour interagir.",
+    yourPlanet: "Votre planète",
+    yourColony: "Votre colonie",
+    emptyHex: "Case vide",
+    hexCoords: "Coords",
   },
   en: {
     title: "THE LAST ORBIT",
@@ -246,6 +252,12 @@ const T = {
     colonizeSuccess: "🌍 New planet colonized!",
     selectPlanet: "Active planet:",
     planetSlot: "Empty slot",
+    mapTitle: "Galactic Map",
+    mapSub: "Click on a cell to interact.",
+    yourPlanet: "Your planet",
+    yourColony: "Your colony",
+    emptyHex: "Empty space",
+    hexCoords: "Coords",
   }
 };
 
@@ -313,6 +325,8 @@ async function loadGame() {
           name: G.planetName || 'Nexara Prime',
           emoji: G.planetEmoji || '🪐',
           sector: G.sector || 1,
+          hexCol: G.hexCol !== undefined ? G.hexCol : Math.floor(Math.random()*9),
+          hexRow: G.hexRow !== undefined ? G.hexRow : Math.floor(Math.random()*9),
           isMain: true,
           buildings: G.buildings || { mine_metal:0, mine_crystal:0, power_plant:0, shipyard:0, defense_turret:0, research_lab:0 },
           fleet: G.fleet || { fighter:0, cruiser:0, battleship:0, colonizer:0 },
@@ -346,6 +360,8 @@ function makePlanet(name, emoji, sector, isMain=true) {
     name: name || 'Nexara Prime',
     emoji: emoji || emojis[Math.floor(Math.random()*emojis.length)],
     sector: sector || Math.floor(Math.random()*9)+1,
+    hexCol: null,
+    hexRow: null,
     isMain,
     buildings: { mine_metal:0, mine_crystal:0, power_plant:0, shipyard:0, defense_turret:0, research_lab:0 },
     fleet: { fighter:0, cruiser:0, battleship:0, colonizer:0 },
@@ -359,13 +375,20 @@ let activePlanetIndex = 0;
 function AP() { return G.planets[activePlanetIndex]; }
 
 function createNewGame(planetName, commanderName) {
+  // Génère des coordonnées hex uniques (col 0-8, row 0-8)
+  const hexCol = Math.floor(Math.random()*9);
+  const hexRow = Math.floor(Math.random()*9);
   G = {
     commanderName: commanderName || 'Commander',
     turn: 1,
     nextTurnTime: nextMidnight(),
     resources: { metal: 3000, crystal: 1000, energy: 200 },
     research: { combustion:0, weapons:0, shields:0, espionage:0, hyperdrive:0 },
-    planets: [ makePlanet(planetName, null, null, true) ],
+    planets: [ {
+      ...makePlanet(planetName, null, null, true),
+      hexCol,
+      hexRow,
+    } ],
     activeMissions: [],
     pendingColonization: null,
     log: [],
@@ -482,7 +505,11 @@ async function processTurn() {
     const pc = G.pendingColonization;
     if (G.planets.length < 3) {
       const emojis = ['🪐','🌍','🌑','🌕','🔴','🟤','🔵'];
-      const newPlanet = makePlanet(pc.planetName, emojis[Math.floor(Math.random()*emojis.length)], pc.sector, false);
+      const newPlanet = {
+        ...makePlanet(pc.planetName, emojis[Math.floor(Math.random()*emojis.length)], pc.sector, false),
+        hexCol: pc.hexCol !== undefined ? pc.hexCol : Math.floor(Math.random()*9),
+        hexRow: pc.hexRow !== undefined ? pc.hexRow : Math.floor(Math.random()*9),
+      };
       G.planets.push(newPlanet);
       addLog(`${t('colonizeSuccess')} ${pc.planetName} (Secteur ${pc.sector})`, 'victory');
     }
@@ -1051,110 +1078,238 @@ async function renderGalaxy() {
   el.innerHTML = `<div style="color:var(--text2);font-style:italic">${t('loading')}</div>`;
   const players = await loadGalaxy();
 
-  // Secteurs occupés (nos planètes + joueurs)
-  const occupiedSectors = [
-    ...(G.planets||[]).map(p=>p.sector),
-    ...players.map(p => p.planets ? p.planets[0]?.sector : p.sector).filter(Boolean),
-  ];
-  const emptyPlanets = generateEmptyPlanets(occupiedSectors);
+  // Construire la grille 9x9
+  const COLS = 9, ROWS = 9;
+  // Map des cases occupées : clé "col,row" → données
+  const cellMap = {};
 
-  let html = '';
+  // Nos propres planètes
+  (G.planets||[]).forEach((p, i) => {
+    const col = p.hexCol ?? Math.floor(Math.random()*COLS);
+    const row = p.hexRow ?? Math.floor(Math.random()*ROWS);
+    cellMap[`${col},${row}`] = {
+      type: i === 0 ? 'own_main' : 'own_colony',
+      planet: p,
+      commander: G.commanderName,
+      uid: null,
+    };
+  });
 
-  // Section : planètes à coloniser
-  if (G.planets.length < 3 && emptyPlanets.length > 0) {
-    html += `<div style="margin-bottom:24px">
-      <div style="font-family:'Orbitron',monospace;font-size:.75rem;color:var(--accent3);letter-spacing:2px;margin-bottom:12px">
-        🌌 ${lang==='fr'?'PLANÈTES DISPONIBLES — colonisation possible':'AVAILABLE PLANETS — can be colonized'}
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px">
-        ${emptyPlanets.map(ep => {
-          const hasCol = G.planets.some(p=>(p.fleet||{}).colonizer>0);
-          const canCol = G.planets.length < 3 && hasCol && !G.pendingColonization;
-          let btnLabel = t('colonize');
-          if (G.pendingColonization) btnLabel = `⏳ ${lang==='fr'?'Colonisation en cours':'Colonization in progress'}`;
-          else if (G.planets.length >= 3) btnLabel = `🔒 MAX`;
-          else if (!hasCol) btnLabel = `🚫 ${lang==='fr'?'Pas de colonisateur':'No colonizer'}`;
-          return `<div class="card" style="border-color:rgba(127,255,107,.25)">
-            <div class="card-header">
-              <span class="card-icon">${ep.emoji}</span>
-              <div>
-                <div class="card-title">${ep.name}</div>
-                <div style="font-size:.8rem;color:var(--text2)">${t('planetCoords')} ${ep.sector}</div>
-              </div>
-              <div class="card-level" style="color:var(--accent3)">LIBRE</div>
-            </div>
-            <div style="font-size:.82rem;color:var(--text2);margin-bottom:12px;line-height:1.5">
-              ${lang==='fr'?'Planète non colonisée. Nécessite un vaisseau colonisateur.':'Uncolonized planet. Requires a colonizer ship.'}
-            </div>
-            <button class="btn" style="border-color:var(--accent3);color:var(--accent3);background:rgba(127,255,107,.05)"
-              onclick="window._openColonizeModal('${ep.name.replace(/'/g,"\\'")}',${ep.sector},'${ep.emoji}')"
-              ${!canCol?'disabled':''}>
-              ${btnLabel}
-            </button>
-          </div>`;
-        }).join('')}
-      </div>
-    </div>`;
+  // Planètes des autres joueurs
+  players.forEach(p => {
+    const planets = p.planets && p.planets.length > 0 ? p.planets : [{ name: p.planetName, emoji: p.planetEmoji, hexCol: null, hexRow: null, sector: p.sector }];
+    planets.forEach((pl, i) => {
+      let col = pl.hexCol ?? null;
+      let row = pl.hexRow ?? null;
+      // Si pas de coords ou collision, trouver une case libre
+      if (col === null || row === null || cellMap[`${col},${row}`]) {
+        let tries = 0;
+        do { col = Math.floor(Math.random()*COLS); row = Math.floor(Math.random()*ROWS); tries++; }
+        while (cellMap[`${col},${row}`] && tries < 50);
+      }
+      cellMap[`${col},${row}`] = {
+        type: 'enemy',
+        planet: pl,
+        commander: p.commanderName || 'Commander',
+        uid: p.uid,
+        playerData: p,
+      };
+    });
+  });
+
+  // Rendu HTML de la carte hexagonale
+  const HEX_SIZE = 34; // px, rayon du cercle inscrit
+  const HEX_W = HEX_SIZE * 2;
+  const HEX_H = Math.sqrt(3) * HEX_SIZE;
+  const OFFSET_X = HEX_W * 0.75;
+
+  let mapHTML = `
+    <div style="margin-bottom:12px;display:flex;gap:16px;flex-wrap:wrap;align-items:center;font-size:.8rem">
+      <span style="display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:14px;height:14px;background:rgba(0,200,255,.4);border:2px solid var(--accent);border-radius:2px"></span> ${t('yourPlanet')}</span>
+      <span style="display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:14px;height:14px;background:rgba(0,200,255,.15);border:2px solid rgba(0,200,255,.4);border-radius:2px"></span> ${t('yourColony')}</span>
+      <span style="display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:14px;height:14px;background:rgba(255,107,53,.25);border:2px solid var(--accent2);border-radius:2px"></span> ${lang==='fr'?'Ennemi':'Enemy'}</span>
+      <span style="display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:14px;height:14px;background:rgba(255,255,255,.04);border:2px solid rgba(255,255,255,.1);border-radius:2px"></span> ${t('emptyHex')}</span>
+    </div>
+    <div style="position:relative;overflow-x:auto;overflow-y:auto;max-height:520px;padding:10px 0 10px 10px">
+    <div style="position:relative;width:${Math.ceil(COLS * OFFSET_X + HEX_W * 0.25 + 10)}px;height:${Math.ceil(ROWS * HEX_H + HEX_H * 0.5 + 10)}px">`;
+
+  for (let row = 0; row < ROWS; row++) {
+    for (let col = 0; col < COLS; col++) {
+      const key = `${col},${row}`;
+      const cell = cellMap[key] || null;
+      const offsetY = col % 2 === 1 ? HEX_H * 0.5 : 0;
+      const x = col * OFFSET_X;
+      const y = row * HEX_H + offsetY;
+
+      let bg, border, emoji, label, clickable = false, onclick = '';
+
+      if (!cell) {
+        // Case vide — colonisable
+        const canCol = G.planets.length < 3 && G.planets.some(p=>(p.fleet||{}).colonizer>0) && !G.pendingColonization;
+        bg = 'rgba(255,255,255,.03)';
+        border = 'rgba(255,255,255,.08)';
+        emoji = '';
+        label = '';
+        if (canCol) {
+          clickable = true;
+          const fakeName = ['Kepler-7b','Orion Nexus','Proxima Drift','Vega Station','Nebula-4','Cygnus Prime','Arcturus II','Tau Ceti V','Rigel Outpost','Sigma-9'][(col*3+row*7)%10];
+          const fakeEmoji = ['🪐','🌑','🟤','🔵','🔴','🌕'][(col+row)%6];
+          onclick = `window._openColonizeModal('${fakeName}',${col*10+row},'${fakeEmoji}',${col},${row})`;
+          bg = 'rgba(127,255,107,.04)';
+          border = 'rgba(127,255,107,.15)';
+        }
+      } else if (cell.type === 'own_main') {
+        bg = 'rgba(0,200,255,.18)';
+        border = 'var(--accent)';
+        emoji = cell.planet.emoji || '🌍';
+        label = cell.planet.name;
+      } else if (cell.type === 'own_colony') {
+        bg = 'rgba(0,200,255,.08)';
+        border = 'rgba(0,200,255,.4)';
+        emoji = cell.planet.emoji || '🌍';
+        label = cell.planet.name;
+      } else {
+        bg = 'rgba(255,107,53,.12)';
+        border = 'rgba(255,107,53,.5)';
+        emoji = cell.planet.emoji || '🪐';
+        label = cell.planet.name || '???';
+        clickable = true;
+        const safeName = (cell.commander||'').replace(/'/g,"\\'");
+        const safePlanet = (cell.planet.name||'').replace(/'/g,"\\'");
+        onclick = `window._showHexPopup(${col},${row},event)`;
+      }
+
+      const hexStyle = `
+        position:absolute;
+        left:${x}px;top:${y}px;
+        width:${HEX_W}px;height:${HEX_H}px;
+        clip-path:polygon(25% 0%,75% 0%,100% 50%,75% 100%,25% 100%,0% 50%);
+        background:${bg};
+        border:0;
+        outline: 2px solid ${border};
+        outline-offset:-2px;
+        display:flex;flex-direction:column;align-items:center;justify-content:center;
+        cursor:${clickable?'pointer':'default'};
+        transition:all .15s;
+        font-size:.65rem;
+        overflow:hidden;
+        padding:2px;
+      `.trim().replace(/\s+/g,' ');
+
+      mapHTML += `<div data-hex="${key}" style="${hexStyle}" ${onclick?`onclick="${onclick}"`:''}
+        onmouseenter="window._hexHover(this,true,'${key}')"
+        onmouseleave="window._hexHover(this,false,'${key}')">
+        ${emoji ? `<span style="font-size:1.1rem;line-height:1">${emoji}</span>` : ''}
+        ${label ? `<span style="color:var(--text2);font-size:.55rem;text-align:center;max-width:90%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;margin-top:1px">${label}</span>` : ''}
+        ${!cell && G.planets.length<3 && G.planets.some(p=>(p.fleet||{}).colonizer>0) && !G.pendingColonization ? `<span style="font-size:.7rem;opacity:.4">+</span>` : ''}
+      </div>`;
+    }
   }
 
-  // Section : nos colonies (si on en a plusieurs)
-  if (G.planets.length > 1) {
-    html += `<div style="margin-bottom:24px">
-      <div style="font-family:'Orbitron',monospace;font-size:.75rem;color:var(--accent);letter-spacing:2px;margin-bottom:12px">
-        🌍 ${lang==='fr'?'VOS PLANÈTES':'YOUR PLANETS'}
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px">
-        ${G.planets.map((p, i) => `<div class="card" style="border-color:rgba(0,200,255,.3)">
-          <div class="card-header">
-            <span class="card-icon">${p.emoji}</span>
-            <div>
-              <div class="card-title">${p.name}</div>
-              <div style="font-size:.8rem;color:var(--text2)">${t('planetCoords')} ${p.sector} · ${i===0?(lang==='fr'?'Principale':'Main'):(lang==='fr'?'Colonie':'Colony')+' '+i}</div>
-            </div>
-          </div>
-          <div style="font-size:.85rem;color:var(--text2)">
-            ⛏️ ${p.buildings?.mine_metal||0} 💠 ${p.buildings?.mine_crystal||0} · 🚀 ${Object.values(p.fleet||{}).reduce((a,b)=>a+b,0)} ${lang==='fr'?'vaisseaux':'ships'}
-          </div>
-        </div>`).join('')}
-      </div>
-    </div>`;
-  }
+  mapHTML += `</div></div>`;
 
-  // Section : autres joueurs
+  // Popup flottante (cachée par défaut)
+  mapHTML += `<div id="hex-popup" style="display:none;position:fixed;z-index:200;background:var(--panel2);border:1px solid var(--border);border-radius:4px;padding:14px;min-width:200px;box-shadow:0 0 20px rgba(0,0,0,.5);pointer-events:auto">
+    <div id="hex-popup-content"></div>
+  </div>`;
+
+  // Liste joueurs (compact, en dessous de la carte)
   if (players.length > 0) {
-    html += `<div style="font-family:'Orbitron',monospace;font-size:.75rem;color:var(--text2);letter-spacing:2px;margin-bottom:12px">
-      👥 ${lang==='fr'?'AUTRES EMPIRES':'OTHER EMPIRES'}
-    </div>`;
-    html += players.map(p => {
-      const mainPlanet = (p.planets&&p.planets.length>0) ? p.planets[0] : { name: p.planetName, emoji: p.planetEmoji, sector: p.sector, fleet: p.fleet||{} };
+    mapHTML += `<div style="margin-top:24px;font-family:'Orbitron',monospace;font-size:.7rem;color:var(--text2);letter-spacing:2px;margin-bottom:10px">👥 ${lang==='fr'?'EMPIRES ACTIFS':'ACTIVE EMPIRES'}</div>`;
+    mapHTML += `<div style="display:flex;flex-wrap:wrap;gap:8px">` + players.map(p => {
+      const mp = p.planets?.[0] || { name: p.planetName, emoji: p.planetEmoji };
       const defPow = calcPlayerDefensePower(p);
-      return `<div class="card" style="margin-bottom:12px">
-        <div class="card-header">
-          <span class="card-icon">${mainPlanet.emoji||'🪐'}</span>
+      return `<div class="card" style="flex:1;min-width:200px;max-width:280px;padding:12px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <span style="font-size:1.3rem">${mp.emoji||'🪐'}</span>
           <div>
-            <div class="card-title">${mainPlanet.name||'???'}</div>
-            <div style="font-size:.8rem;color:var(--text2)">${p.commanderName||'Commander'} · ${t('planetCoords')} ${mainPlanet.sector||'?'}${p.planets&&p.planets.length>1?' · '+p.planets.length+'🌍':''}</div>
+            <div style="font-family:'Orbitron',monospace;font-size:.75rem;color:var(--text)">${mp.name||'???'}</div>
+            <div style="font-size:.75rem;color:var(--text2)">${p.commanderName||'?'} · 🛡️${fmt(defPow)}</div>
           </div>
-          <div class="card-level" style="color:var(--accent2)">${lang==='fr'?'Tour':'Turn'} ${p.turn||1}</div>
         </div>
-        <div style="display:flex;gap:20px;font-size:.85rem;margin-top:4px;margin-bottom:14px">
-          <span style="color:var(--metal)">🪨 ${fmt(p.resources?.metal||0)}</span>
-          <span style="color:var(--crystal)">💎 ${fmt(p.resources?.crystal||0)}</span>
-          <span style="color:var(--crystal)">🛡️ ${fmt(defPow)}</span>
-        </div>
-        <button class="btn orange" style="width:auto;padding:8px 20px;font-size:.8rem"
-          onclick="window._openAttackModal('${p.uid||''}','${(p.commanderName||'').replace(/'/g,"\\'")}','${(mainPlanet.name||'').replace(/'/g,"\\'")}')">
+        <button class="btn orange" style="padding:6px;font-size:.75rem" onclick="window._openAttackModal('${p.uid||''}','${(p.commanderName||'').replace(/'/g,"\\'")}','${(mp.name||'').replace(/'/g,"\\'")}')">
           ${t('attackPlayer')}
         </button>
       </div>`;
-    }).join('');
-  } else if (emptyPlanets.length === 0) {
-    html += `<div class="queue-empty">${t('noPlayers')}</div>`;
+    }).join('') + `</div>`;
   }
 
-  el.innerHTML = html || `<div class="queue-empty">${t('noPlayers')}</div>`;
+  el.innerHTML = mapHTML;
   document.getElementById('player-count').textContent = players.length + ' ' + t('playerCount');
+
+  // Stocker la cellMap pour les popups
+  window._hexCellMap = cellMap;
+  window._hexPlayers = players;
 }
+
+// Hover sur un hex
+window._hexHover = (el, entering, key) => {
+  const cell = window._hexCellMap?.[key];
+  if (!cell) return;
+  if (entering) {
+    el.style.filter = 'brightness(1.3)';
+    el.style.zIndex = '10';
+  } else {
+    el.style.filter = '';
+    el.style.zIndex = '';
+    // Fermer la popup si on quitte sans cliquer
+  }
+};
+
+// Afficher popup sur un hex ennemi
+window._showHexPopup = (col, row, event) => {
+  const key = `${col},${row}`;
+  const cell = window._hexCellMap?.[key];
+  if (!cell || cell.type !== 'enemy') return;
+  const popup = document.getElementById('hex-popup');
+  const content = document.getElementById('hex-popup-content');
+  const p = cell.playerData || {};
+  const defPow = calcPlayerDefensePower(p);
+  content.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:10px">
+      <div>
+        <div style="font-family:'Orbitron',monospace;font-size:.8rem;color:var(--accent2)">${cell.planet.emoji} ${cell.planet.name||'???'}</div>
+        <div style="font-size:.78rem;color:var(--text2);margin-top:2px">${cell.commander} · 🛡️${fmt(defPow)}</div>
+      </div>
+      <button onclick="document.getElementById('hex-popup').style.display='none'" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:1rem;padding:0 0 0 8px">✕</button>
+    </div>
+    <div style="display:flex;gap:8px;font-size:.78rem;margin-bottom:10px">
+      <span style="color:var(--metal)">🪨 ${fmt(p.resources?.metal||0)}</span>
+      <span style="color:var(--crystal)">💎 ${fmt(p.resources?.crystal||0)}</span>
+    </div>
+    <button class="btn orange" style="padding:8px;font-size:.8rem" onclick="window._openAttackModal('${cell.uid||''}','${(cell.commander||'').replace(/'/g,"\\'")}','${(cell.planet.name||'').replace(/'/g,"\\'")}');document.getElementById('hex-popup').style.display='none'">
+      ${t('attackPlayer')}
+    </button>`;
+  // Positionner la popup près du curseur
+  const x = Math.min(event.clientX + 10, window.innerWidth - 220);
+  const y = Math.min(event.clientY - 20, window.innerHeight - 180);
+  popup.style.left = x + 'px';
+  popup.style.top = y + 'px';
+  popup.style.display = 'block';
+  // Fermer au clic ailleurs
+  setTimeout(() => {
+    const close = (e) => { if (!popup.contains(e.target)) { popup.style.display='none'; document.removeEventListener('click', close); } };
+    document.addEventListener('click', close);
+  }, 50);
+};
+
+// Surcharger _openColonizeModal pour accepter col/row
+const _origColonize = window._openColonizeModal;
+window._openColonizeModal = (planetName, sector, emoji, col, row) => {
+  window._colonizeHexCol = col !== undefined ? col : null;
+  window._colonizeHexRow = row !== undefined ? row : null;
+  if (!G) return;
+  if (G.planets.length >= 3) { notify(t('colonizeMax'), true); return; }
+  if (G.pendingColonization) { notify(t('colonizeAlready'), true); return; }
+  const hasColonizer = G.planets.some(p => (p.fleet||{}).colonizer > 0);
+  if (!hasColonizer) { notify(t('colonizeNoShip'), true); return; }
+  window._colonizeTarget = { planetName, sector, emoji };
+  const modal = document.getElementById('colonize-modal');
+  document.getElementById('colonize-modal-title').textContent = `${emoji} ${planetName}`;
+  document.getElementById('colonize-modal-sector').textContent = `${lang==='fr'?'Secteur':'Sector'} ${sector} · ${t('hexCoords')} (${col !== undefined ? col : '?'},${row !== undefined ? row : '?'})`;
+  modal.style.display = 'flex';
+};
+
 function renderLog() {
   const el = document.getElementById('log-display');
   if (!el) return;
@@ -1244,7 +1399,16 @@ window._confirmColonize = async () => {
   if (!sourcePlanet) { notify(t('colonizeNoShip'), true); return; }
   sourcePlanet.fleet.colonizer--;
   
-  G.pendingColonization = { ...window._colonizeTarget };
+  // Utiliser les coords hex cliquées, ou générer si absent
+  const usedCoords = G.planets.map(p => `${p.hexCol},${p.hexRow}`);
+  let col = window._colonizeHexCol !== null && window._colonizeHexCol !== undefined ? window._colonizeHexCol : null;
+  let row = window._colonizeHexRow !== null && window._colonizeHexRow !== undefined ? window._colonizeHexRow : null;
+  if (col === null || usedCoords.includes(`${col},${row}`)) {
+    let tries = 0;
+    do { col = Math.floor(Math.random()*9); row = Math.floor(Math.random()*9); tries++; }
+    while (usedCoords.includes(`${col},${row}`) && tries < 50);
+  }
+  G.pendingColonization = { ...window._colonizeTarget, hexCol: col, hexRow: row };
   addLog(`🚀 ${lang==='fr'?'Colonisateur envoyé vers':'Colonizer sent to'} ${window._colonizeTarget.planetName}`, 'info');
   await saveGame();
   window._closeColonizeModal();
@@ -1774,8 +1938,8 @@ window._notify = notify;
 
       <!-- GALAXY -->
       <div class="page" id="page-galaxy">
-        <div class="page-title" data-tkey="galaxy_title">Galaxie</div>
-        <div class="page-subtitle" data-tkey="galaxy_sub">Les empires actifs dans l'univers.</div>
+        <div class="page-title" data-tkey="mapTitle">Carte Galactique</div>
+        <div class="page-subtitle" data-tkey="mapSub">Cliquez sur une case pour interagir.</div>
         <div id="galaxy-list"></div>
       </div>
 
