@@ -142,6 +142,31 @@ const T = {
     yourColony: "Votre colonie",
     emptyHex: "Case vide",
     hexCoords: "Coords",
+    market: "Marché",
+    marketTitle: "Marché Galactique",
+    marketSub: "Échangez des ressources avec les autres empires.",
+    marketPublic: "Marché Public",
+    marketPrivate: "Offres Privées",
+    marketMerchant: "Marchand PNJ",
+    postOffer: "POSTER UNE OFFRE",
+    myOffers: "Mes offres actives",
+    cancelOffer: "Annuler",
+    acceptOffer: "✅ ACCEPTER",
+    offerGive: "J'offre",
+    offerWant: "Je veux",
+    noOffers: "Aucune offre sur le marché.",
+    noPrivateOffers: "Aucune offre privée.",
+    noPort: "🔒 Construisez un Port Spatial pour accéder au marché.",
+    maxOffers: "Vous avez atteint votre limite d'offres (Port Spatial nv.",
+    offerPosted: "Offre postée sur le marché !",
+    offerAccepted: "Échange accepté !",
+    offerCancelled: "Offre annulée.",
+    offerSelf: "Vous ne pouvez pas accepter votre propre offre.",
+    merchantBuy: "ACHETER",
+    merchantRate: "Taux du marchand",
+    privateTarget: "Envoyer à",
+    sendPrivate: "ENVOYER L'OFFRE",
+    spacePort: "Port Spatial",
   },
   en: {
     title: "THE LAST ORBIT",
@@ -258,6 +283,31 @@ const T = {
     yourColony: "Your colony",
     emptyHex: "Empty space",
     hexCoords: "Coords",
+    market: "Market",
+    marketTitle: "Galactic Market",
+    marketSub: "Trade resources with other empires.",
+    marketPublic: "Public Market",
+    marketPrivate: "Private Offers",
+    marketMerchant: "NPC Merchant",
+    postOffer: "POST AN OFFER",
+    myOffers: "My active offers",
+    cancelOffer: "Cancel",
+    acceptOffer: "✅ ACCEPT",
+    offerGive: "I offer",
+    offerWant: "I want",
+    noOffers: "No offers on the market.",
+    noPrivateOffers: "No private offers.",
+    noPort: "🔒 Build a Space Port to access the market.",
+    maxOffers: "You have reached your offer limit (Space Port lv.",
+    offerPosted: "Offer posted on the market!",
+    offerAccepted: "Trade accepted!",
+    offerCancelled: "Offer cancelled.",
+    offerSelf: "You cannot accept your own offer.",
+    merchantBuy: "BUY",
+    merchantRate: "Merchant rate",
+    privateTarget: "Send to",
+    sendPrivate: "SEND OFFER",
+    spacePort: "Space Port",
   }
 };
 
@@ -272,6 +322,7 @@ const BUILDINGS = [
   { id: 'shipyard', nameKey: null, icon: '🛸', nameFr:'Chantier Naval', nameEn:'Shipyard', descFr: "Permet la construction de vaisseaux spatiaux.", descEn: "Enables construction of spacecraft.", costBase: {metal:200,crystal:100,energy:30}, production:null },
   { id: 'defense_turret', nameKey: null, icon: '🔫', nameFr:'Tourelle Laser', nameEn:'Laser Turret', descFr: "Défense planétaire automatique.", descEn: "Automatic planetary defense.", costBase: {metal:150,crystal:50,energy:20}, production:null },
   { id: 'research_lab', nameKey: null, icon: '🔭', nameFr:'Laboratoire', nameEn:'Research Lab', descFr: "Débloque et accélère les recherches.", descEn: "Unlocks and accelerates research.", costBase: {metal:200,crystal:400,energy:40}, production:null },
+  { id: 'spaceport', nameKey: null, icon: '🏪', nameFr:'Port Spatial', nameEn:'Space Port', descFr: "Permet de poster des offres sur le marché galactique. Chaque niveau débloque un slot d'offre supplémentaire.", descEn: "Allows posting offers on the galactic market. Each level unlocks an additional offer slot.", costBase: {metal:300,crystal:500,energy:60}, production:null, maxLevel:3 },
 ];
 
 const RESEARCH = [
@@ -363,7 +414,7 @@ function makePlanet(name, emoji, sector, isMain=true) {
     hexCol: null,
     hexRow: null,
     isMain,
-    buildings: { mine_metal:0, mine_crystal:0, power_plant:0, shipyard:0, defense_turret:0, research_lab:0 },
+    buildings: { mine_metal:0, mine_crystal:0, power_plant:0, shipyard:0, defense_turret:0, research_lab:0, spaceport:0 },
     fleet: { fighter:0, cruiser:0, battleship:0, colonizer:0 },
     defense: { shields:0, cannons:0, rockets:0 },
     buildQueue: [],
@@ -836,6 +887,7 @@ function renderPage(id) {
   else if (id==='missions') renderMissions();
   else if (id==='log') renderLog();
   else if (id==='galaxy') renderGalaxy();
+  else if (id==='market') { window._marketTab = window._marketTab||'public'; renderMarket(); }
   else updateUI();
 }
 
@@ -1467,6 +1519,324 @@ window._launchMission = async (type, name) => {
 
 window._showPage = showPage;
 
+// ========== MARCHÉ GALACTIQUE ==========
+
+const RESOURCES = ['metal','crystal','energy'];
+const RES_ICON = { metal:'🪨', crystal:'💎', energy:'⚡' };
+const RES_KEY  = { metal:'metal', crystal:'crystal', energy:'energy' };
+
+// Taux du marchand PNJ : volontairement défavorable
+const MERCHANT_RATES = [
+  { give:'metal',   want:'crystal', rate: 5   }, // 500 métal → 100 cristal
+  { give:'crystal', want:'metal',   rate: 0.15 }, // 100 cristal → 666 métal (mais coût en cristal)
+  { give:'metal',   want:'energy',  rate: 4   },
+  { give:'energy',  want:'metal',   rate: 0.2  },
+  { give:'crystal', want:'energy',  rate: 2   },
+  { give:'energy',  want:'crystal', rate: 0.4  },
+];
+
+function getSpaceportLevel() {
+  // Niveau max de spaceport parmi toutes les planètes
+  return Math.max(...(G.planets||[]).map(p => (p.buildings||{}).spaceport||0));
+}
+
+async function loadTrades() {
+  try {
+    const snap = await getDocs(collection(db, 'trades'));
+    const trades = [];
+    snap.forEach(d => trades.push({ ...d.data(), id: d.id }));
+    return trades;
+  } catch(e) { return []; }
+}
+
+async function renderMarket() {
+  const el = document.getElementById('market-content');
+  if (!el) return;
+
+  const portLevel = getSpaceportLevel();
+  if (portLevel === 0) {
+    el.innerHTML = `<div style="text-align:center;padding:40px;color:var(--text2);font-size:1rem">${t('noPort')}</div>`;
+    return;
+  }
+
+  el.innerHTML = `<div style="color:var(--text2);font-style:italic">${t('loading')}</div>`;
+  const allTrades = await loadTrades();
+  const myTrades = allTrades.filter(tr => tr.sellerUid === currentUser.uid && tr.status === 'open');
+  const publicTrades = allTrades.filter(tr => tr.sellerUid !== currentUser.uid && tr.status === 'open' && !tr.targetUid);
+  const privateTrades = allTrades.filter(tr => tr.targetUid === currentUser.uid && tr.status === 'open');
+
+  // Onglets marché
+  const activeTab = window._marketTab || 'public';
+
+  let html = `
+    <div style="display:flex;gap:0;margin-bottom:20px;border-bottom:1px solid var(--border)">
+      ${['public','private','merchant'].map(tab => `
+        <button onclick="window._marketTab='${tab}';renderMarket()" style="
+          padding:10px 18px;background:${activeTab===tab?'rgba(0,200,255,.1)':'transparent'};
+          border:none;border-bottom:2px solid ${activeTab===tab?'var(--accent)':'transparent'};
+          color:${activeTab===tab?'var(--accent)':'var(--text2)'};
+          font-family:'Rajdhani',sans-serif;font-size:.9rem;font-weight:700;letter-spacing:1px;cursor:pointer">
+          ${tab==='public'?t('marketPublic'):tab==='private'?`${t('marketPrivate')}${privateTrades.length>0?` <span style="background:var(--accent2);color:#000;border-radius:10px;padding:1px 6px;font-size:.7rem">${privateTrades.length}</span>`:''}`:t('marketMerchant')}
+        </button>`).join('')}
+    </div>`;
+
+  if (activeTab === 'public') {
+    // Mes offres actives
+    html += `<div style="margin-bottom:20px">
+      <div style="font-family:'Orbitron',monospace;font-size:.7rem;color:var(--text2);letter-spacing:2px;margin-bottom:10px">${t('myOffers')} (${myTrades.length}/${portLevel})</div>`;
+    if (myTrades.length > 0) {
+      html += myTrades.map(tr => `
+        <div style="display:flex;align-items:center;gap:12px;padding:10px;background:var(--panel);border:1px solid rgba(0,200,255,.2);border-radius:4px;margin-bottom:8px;font-size:.85rem">
+          <span>${RES_ICON[tr.giveRes]} ${fmt(tr.giveAmt)}</span>
+          <span style="color:var(--text2)">→</span>
+          <span>${RES_ICON[tr.wantRes]} ${fmt(tr.wantAmt)}</span>
+          <button onclick="window._cancelTrade('${tr.id}')" style="margin-left:auto;background:transparent;border:1px solid var(--danger);color:var(--danger);padding:4px 10px;cursor:pointer;border-radius:2px;font-size:.75rem">${t('cancelOffer')}</button>
+        </div>`).join('');
+    } else {
+      html += `<div style="color:var(--text2);font-size:.82rem;font-style:italic;margin-bottom:8px">${lang==='fr'?'Aucune offre active.':'No active offers.'}</div>`;
+    }
+    html += `</div>`;
+
+    // Formulaire nouvelle offre
+    if (myTrades.length < portLevel) {
+      html += `<div style="background:var(--panel);border:1px solid var(--border);border-radius:4px;padding:16px;margin-bottom:20px">
+        <div style="font-family:'Orbitron',monospace;font-size:.7rem;color:var(--accent);letter-spacing:2px;margin-bottom:14px">${t('postOffer')}</div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+          <div>
+            <div style="font-size:.75rem;color:var(--text2);margin-bottom:4px">${t('offerGive')}</div>
+            <div style="display:flex;gap:6px">
+              <select id="give-res" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px;border-radius:2px;font-family:'Rajdhani',sans-serif">
+                ${RESOURCES.map(r=>`<option value="${r}">${RES_ICON[r]} ${t(r)}</option>`).join('')}
+              </select>
+              <input id="give-amt" type="number" min="1" value="500" style="width:90px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px;border-radius:2px;font-family:'Orbitron',monospace;font-size:.85rem">
+            </div>
+          </div>
+          <div style="font-size:1.2rem;color:var(--text2);padding-bottom:4px">⇄</div>
+          <div>
+            <div style="font-size:.75rem;color:var(--text2);margin-bottom:4px">${t('offerWant')}</div>
+            <div style="display:flex;gap:6px">
+              <select id="want-res" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px;border-radius:2px;font-family:'Rajdhani',sans-serif">
+                ${RESOURCES.map(r=>`<option value="${r}" ${r==='crystal'?'selected':''}>${RES_ICON[r]} ${t(r)}</option>`).join('')}
+              </select>
+              <input id="want-amt" type="number" min="1" value="200" style="width:90px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px;border-radius:2px;font-family:'Orbitron',monospace;font-size:.85rem">
+            </div>
+          </div>
+          <button class="btn" style="padding:8px 16px;white-space:nowrap" onclick="window._postTrade()">${t('postOffer')}</button>
+        </div>
+      </div>`;
+    }
+
+    // Offres publiques des autres joueurs
+    html += `<div style="font-family:'Orbitron',monospace;font-size:.7rem;color:var(--text2);letter-spacing:2px;margin-bottom:10px">${lang==='fr'?'OFFRES DISPONIBLES':'AVAILABLE OFFERS'}</div>`;
+    if (publicTrades.length === 0) {
+      html += `<div class="queue-empty">${t('noOffers')}</div>`;
+    } else {
+      html += publicTrades.map(tr => `
+        <div style="display:flex;align-items:center;gap:12px;padding:12px;background:var(--panel);border:1px solid var(--border);border-radius:4px;margin-bottom:8px;font-size:.85rem">
+          <span style="font-size:.75rem;color:var(--text2)">${tr.sellerName||'?'}</span>
+          <span style="color:var(--text2)">·</span>
+          <span style="color:var(--metal)">${RES_ICON[tr.giveRes]} ${fmt(tr.giveAmt)}</span>
+          <span style="color:var(--text2)">→</span>
+          <span style="color:var(--crystal)">${RES_ICON[tr.wantRes]} ${fmt(tr.wantAmt)}</span>
+          <button onclick="window._acceptTrade('${tr.id}')" class="btn" style="margin-left:auto;padding:6px 14px;font-size:.78rem">${t('acceptOffer')}</button>
+        </div>`).join('');
+    }
+
+  } else if (activeTab === 'private') {
+    // Offres privées reçues
+    html += `<div style="font-family:'Orbitron',monospace;font-size:.7rem;color:var(--accent);letter-spacing:2px;margin-bottom:10px">${lang==='fr'?'OFFRES REÇUES':'RECEIVED OFFERS'}</div>`;
+    if (privateTrades.length === 0) {
+      html += `<div class="queue-empty">${t('noPrivateOffers')}</div>`;
+    } else {
+      html += privateTrades.map(tr => `
+        <div style="display:flex;align-items:center;gap:12px;padding:12px;background:var(--panel);border:1px solid rgba(0,200,255,.25);border-radius:4px;margin-bottom:8px;font-size:.85rem">
+          <span style="font-size:.75rem;color:var(--accent)">${tr.sellerName||'?'}</span>
+          <span style="color:var(--text2)">${lang==='fr'?'vous propose':'offers you'}</span>
+          <span style="color:var(--metal)">${RES_ICON[tr.giveRes]} ${fmt(tr.giveAmt)}</span>
+          <span style="color:var(--text2)">→</span>
+          <span style="color:var(--crystal)">${RES_ICON[tr.wantRes]} ${fmt(tr.wantAmt)}</span>
+          <div style="margin-left:auto;display:flex;gap:6px">
+            <button onclick="window._acceptTrade('${tr.id}')" class="btn" style="padding:6px 12px;font-size:.78rem">${t('acceptOffer')}</button>
+            <button onclick="window._cancelTrade('${tr.id}')" style="background:transparent;border:1px solid var(--danger);color:var(--danger);padding:6px 10px;cursor:pointer;border-radius:2px;font-size:.75rem">${t('cancelOffer')}</button>
+          </div>
+        </div>`).join('');
+    }
+
+    // Formulaire offre privée
+    if (myTrades.length < portLevel) {
+      const players = await loadGalaxy();
+      html += `<div style="background:var(--panel);border:1px solid var(--border);border-radius:4px;padding:16px;margin-top:20px">
+        <div style="font-family:'Orbitron',monospace;font-size:.7rem;color:var(--accent);letter-spacing:2px;margin-bottom:14px">${t('sendPrivate')}</div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+          <div>
+            <div style="font-size:.75rem;color:var(--text2);margin-bottom:4px">${t('privateTarget')}</div>
+            <select id="private-target" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px;border-radius:2px;font-family:'Rajdhani',sans-serif">
+              ${players.map(p=>`<option value="${p.uid}">${(p.planets?.[0]?.name||p.planetName)||'?'} (${p.commanderName||'?'})</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <div style="font-size:.75rem;color:var(--text2);margin-bottom:4px">${t('offerGive')}</div>
+            <div style="display:flex;gap:6px">
+              <select id="priv-give-res" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px;border-radius:2px;font-family:'Rajdhani',sans-serif">
+                ${RESOURCES.map(r=>`<option value="${r}">${RES_ICON[r]} ${t(r)}</option>`).join('')}
+              </select>
+              <input id="priv-give-amt" type="number" min="1" value="500" style="width:80px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px;border-radius:2px;font-family:'Orbitron',monospace;font-size:.85rem">
+            </div>
+          </div>
+          <div style="font-size:1.2rem;color:var(--text2);padding-bottom:4px">⇄</div>
+          <div>
+            <div style="font-size:.75rem;color:var(--text2);margin-bottom:4px">${t('offerWant')}</div>
+            <div style="display:flex;gap:6px">
+              <select id="priv-want-res" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px;border-radius:2px;font-family:'Rajdhani',sans-serif">
+                ${RESOURCES.map(r=>`<option value="${r}" ${r==='crystal'?'selected':''}>${RES_ICON[r]} ${t(r)}</option>`).join('')}
+              </select>
+              <input id="priv-want-amt" type="number" min="1" value="200" style="width:80px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px;border-radius:2px;font-family:'Orbitron',monospace;font-size:.85rem">
+            </div>
+          </div>
+          <button class="btn" style="padding:8px 16px;white-space:nowrap" onclick="window._postPrivateTrade()">${t('sendPrivate')}</button>
+        </div>
+      </div>`;
+    }
+
+  } else if (activeTab === 'merchant') {
+    html += `<div style="font-family:'Orbitron',monospace;font-size:.7rem;color:var(--accent2);letter-spacing:2px;margin-bottom:6px">🤖 ${lang==='fr'?'MARCHAND GALACTIQUE':'GALACTIC MERCHANT'}</div>`;
+    html += `<div style="font-size:.82rem;color:var(--text2);margin-bottom:16px">${lang==='fr'?'Le marchand achète et vend à des taux élevés. Pratique en urgence, jamais rentable.':'The merchant buys and sells at high rates. Useful in emergencies, never profitable.'}</div>`;
+    html += `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px">`;
+    MERCHANT_RATES.forEach(mr => {
+      const giveAmt = 500;
+      const getAmt = Math.floor(giveAmt * mr.rate);
+      const canAffordIt = G.resources[mr.give] >= giveAmt;
+      html += `<div class="card" style="padding:16px">
+        <div style="font-size:.8rem;color:var(--text2);margin-bottom:8px">${t('merchantRate')}</div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+          <span style="font-size:1.4rem">${RES_ICON[mr.give]}</span>
+          <div>
+            <div style="font-family:'Orbitron',monospace;font-size:.85rem">${fmt(giveAmt)} ${t(mr.give)}</div>
+            <div style="font-size:.75rem;color:var(--text2)">→ ${fmt(getAmt)} ${t(mr.want)}</div>
+          </div>
+        </div>
+        <button class="btn orange" style="padding:8px;font-size:.8rem" onclick="window._merchantTrade('${mr.give}','${mr.want}',${giveAmt},${getAmt})" ${!canAffordIt?'disabled':''}>
+          ${t('merchantBuy')} ${RES_ICON[mr.want]}
+        </button>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  el.innerHTML = html;
+}
+
+// ===== ACTIONS MARCHÉ =====
+window._postTrade = async () => {
+  const giveRes = document.getElementById('give-res')?.value;
+  const wantRes = document.getElementById('want-res')?.value;
+  const giveAmt = parseInt(document.getElementById('give-amt')?.value)||0;
+  const wantAmt = parseInt(document.getElementById('want-amt')?.value)||0;
+  if (giveRes === wantRes) { notify(lang==='fr'?'Ressources identiques !':'Same resources!', true); return; }
+  if (giveAmt <= 0 || wantAmt <= 0) { notify(t('insufficientRes'), true); return; }
+  if (!canAfford({[giveRes]: giveAmt})) { notify(t('insufficientRes'), true); return; }
+  const portLevel = getSpaceportLevel();
+  const myTrades = (await loadTrades()).filter(tr => tr.sellerUid === currentUser.uid && tr.status === 'open');
+  if (myTrades.length >= portLevel) { notify(t('maxOffers')+portLevel+')', true); return; }
+  spend({[giveRes]: giveAmt});
+  await addDoc(collection(db, 'trades'), {
+    sellerUid: currentUser.uid,
+    sellerName: G.commanderName,
+    giveRes, giveAmt, wantRes, wantAmt,
+    targetUid: null,
+    status: 'open',
+    createdAt: Date.now(),
+  });
+  await saveGame();
+  notify(t('offerPosted'));
+  renderMarket();
+};
+
+window._postPrivateTrade = async () => {
+  const targetUid = document.getElementById('private-target')?.value;
+  const giveRes = document.getElementById('priv-give-res')?.value;
+  const wantRes = document.getElementById('priv-want-res')?.value;
+  const giveAmt = parseInt(document.getElementById('priv-give-amt')?.value)||0;
+  const wantAmt = parseInt(document.getElementById('priv-want-amt')?.value)||0;
+  if (!targetUid || giveRes === wantRes) { notify(lang==='fr'?'Paramètres invalides.':'Invalid parameters.', true); return; }
+  if (giveAmt <= 0 || wantAmt <= 0) { notify(t('insufficientRes'), true); return; }
+  if (!canAfford({[giveRes]: giveAmt})) { notify(t('insufficientRes'), true); return; }
+  spend({[giveRes]: giveAmt});
+  await addDoc(collection(db, 'trades'), {
+    sellerUid: currentUser.uid,
+    sellerName: G.commanderName,
+    giveRes, giveAmt, wantRes, wantAmt,
+    targetUid,
+    status: 'open',
+    createdAt: Date.now(),
+  });
+  await saveGame();
+  notify(t('offerPosted'));
+  renderMarket();
+};
+
+window._acceptTrade = async (tradeId) => {
+  try {
+    const snap = await getDoc(doc(db, 'trades', tradeId));
+    if (!snap.exists()) { notify(lang==='fr'?'Offre introuvable.':'Offer not found.', true); return; }
+    const tr = snap.data();
+    if (tr.sellerUid === currentUser.uid) { notify(t('offerSelf'), true); return; }
+    if (tr.status !== 'open') { notify(lang==='fr'?'Offre déjà traitée.':'Offer already processed.', true); return; }
+    if (!canAfford({[tr.wantRes]: tr.wantAmt})) { notify(t('insufficientRes'), true); return; }
+    // Acheteur dépense wantAmt et reçoit giveAmt
+    spend({[tr.wantRes]: tr.wantAmt});
+    G.resources[tr.giveRes] += tr.giveAmt;
+    // Vendeur reçoit wantAmt (on met à jour via Firebase côté vendeur au prochain chargement)
+    // On stocke la récompense du vendeur dans la trade résolue
+    await updateDoc(doc(db, 'trades', tradeId), {
+      status: 'resolved',
+      buyerUid: currentUser.uid,
+      buyerName: G.commanderName,
+      resolvedAt: Date.now(),
+    });
+    // Créditer le vendeur directement dans Firebase
+    const sellerSnap = await getDoc(doc(db, 'players', tr.sellerUid));
+    if (sellerSnap.exists()) {
+      const sellerData = sellerSnap.data();
+      const newRes = { ...(sellerData.resources||{}) };
+      newRes[tr.wantRes] = (newRes[tr.wantRes]||0) + tr.wantAmt;
+      await updateDoc(doc(db, 'players', tr.sellerUid), { resources: newRes });
+    }
+    await saveGame();
+    addLog(`💱 ${lang==='fr'?'Échange':'Trade'} : +${fmt(tr.giveAmt)}${RES_ICON[tr.giveRes]} −${fmt(tr.wantAmt)}${RES_ICON[tr.wantRes]} (${tr.sellerName})`, 'victory');
+    notify(t('offerAccepted'));
+    renderMarket();
+    updateUI();
+  } catch(e) { console.error(e); notify(lang==='fr'?'Erreur lors de l\'échange.':'Trade error.', true); }
+};
+
+window._cancelTrade = async (tradeId) => {
+  try {
+    const snap = await getDoc(doc(db, 'trades', tradeId));
+    if (!snap.exists()) return;
+    const tr = snap.data();
+    // Rembourser les ressources
+    G.resources[tr.giveRes] = (G.resources[tr.giveRes]||0) + tr.giveAmt;
+    await deleteDoc(doc(db, 'trades', tradeId));
+    await saveGame();
+    notify(t('offerCancelled'));
+    addLog(`💱 ${lang==='fr'?'Offre annulée':'Offer cancelled'} : +${fmt(tr.giveAmt)}${RES_ICON[tr.giveRes]} ${lang==='fr'?'remboursé':'refunded'}`, 'info');
+    renderMarket();
+    updateUI();
+  } catch(e) { console.error(e); }
+};
+
+window._merchantTrade = async (giveRes, wantRes, giveAmt, getAmt) => {
+  if (!canAfford({[giveRes]: giveAmt})) { notify(t('insufficientRes'), true); return; }
+  spend({[giveRes]: giveAmt});
+  G.resources[wantRes] = (G.resources[wantRes]||0) + getAmt;
+  addLog(`🤖 ${lang==='fr'?'Marchand':'Merchant'} : −${fmt(giveAmt)}${RES_ICON[giveRes]} +${fmt(getAmt)}${RES_ICON[wantRes]}`, 'info');
+  await saveGame();
+  notify(`+${fmt(getAmt)} ${t(wantRes)}`);
+  renderMarket();
+  updateUI();
+};
+
 window._toggleLang = () => {
   lang = lang === 'fr' ? 'en' : 'fr';
   localStorage.setItem('tlo_lang', lang);
@@ -1849,6 +2219,7 @@ window._notify = notify;
       <button class="nav-btn" onclick="window._showPage('missions')" id="nav-missions"><span class="nav-icon">⚔️</span><span data-tkey="missions">Missions</span></button>
       <div class="nav-section">UNIVERS</div>
       <button class="nav-btn" onclick="window._showPage('galaxy')" id="nav-galaxy"><span class="nav-icon">🌌</span><span data-tkey="galaxy">Galaxie</span></button>
+      <button class="nav-btn" onclick="window._showPage('market')" id="nav-market"><span class="nav-icon">💱</span><span data-tkey="market">Marché</span></button>
       <button class="nav-btn" onclick="window._showPage('log')" id="nav-log"><span class="nav-icon">📜</span><span data-tkey="log">Journal</span></button>
     </nav>
 
@@ -1941,6 +2312,13 @@ window._notify = notify;
         <div class="page-title" data-tkey="mapTitle">Carte Galactique</div>
         <div class="page-subtitle" data-tkey="mapSub">Cliquez sur une case pour interagir.</div>
         <div id="galaxy-list"></div>
+      </div>
+
+      <!-- MARKET -->
+      <div class="page" id="page-market">
+        <div class="page-title" data-tkey="marketTitle">Marché Galactique</div>
+        <div class="page-subtitle" data-tkey="marketSub">Échangez des ressources avec les autres empires.</div>
+        <div id="market-content"></div>
       </div>
 
       <!-- LOG -->
