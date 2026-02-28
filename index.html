@@ -1464,14 +1464,33 @@ async function renderGalaxy() {
   // Map des cases occupées : clé "col,row" → données
   const cellMap = {};
 
+  // Fonction déterministe : même UID + même index = toujours même case
+  // Pas d'aléatoire, pas de sauvegarde nécessaire
+  function uidToCoords(uid, planetIndex, existingCellMap, cols, rows) {
+    // Calculer un hash simple à partir de l'UID
+    let hash = 0;
+    const str = uid + '_' + planetIndex;
+    for (let i = 0; i < str.length; i++) {
+      hash = ((hash << 5) - hash) + str.charCodeAt(i);
+      hash |= 0;
+    }
+    // Essayer des cases dans un ordre déterministe jusqu'à trouver une libre
+    for (let attempt = 0; attempt < cols * rows; attempt++) {
+      const h = Math.abs(hash + attempt * 7919);
+      const col = h % cols;
+      const row = Math.floor(h / cols) % rows;
+      if (!existingCellMap[`${col},${row}`]) return { col, row };
+    }
+    // Fallback (ne devrait jamais arriver avec 81 cases)
+    return { col: Math.abs(hash) % cols, row: Math.abs(hash >> 4) % rows };
+  }
+
   // Nos propres planètes
   let ownNeedsSave = false;
   (G.planets||[]).forEach((p, i) => {
     if (p.hexCol === null || p.hexCol === undefined || p.hexRow === null || p.hexRow === undefined) {
-      let col, row, tries = 0;
-      do { col = Math.floor(Math.random()*COLS); row = Math.floor(Math.random()*ROWS); tries++; }
-      while (cellMap[`${col},${row}`] && tries < 50);
-      p.hexCol = col; p.hexRow = row;
+      const coords = uidToCoords(currentUser.uid, i, cellMap, COLS, ROWS);
+      p.hexCol = coords.col; p.hexRow = coords.row;
       ownNeedsSave = true;
     }
     cellMap[`${p.hexCol},${p.hexRow}`] = {
@@ -1486,18 +1505,13 @@ async function renderGalaxy() {
   // Planètes des autres joueurs
   for (const p of players) {
     const planets = p.planets && p.planets.length > 0 ? p.planets : [{ name: p.planetName, emoji: p.planetEmoji, hexCol: null, hexRow: null, sector: p.sector }];
-    let needsSave = false;
-    for (const pl of planets) {
+    planets.forEach((pl, i) => {
       let col = pl.hexCol ?? null;
       let row = pl.hexRow ?? null;
-      // Si pas de coords ou collision, trouver une case libre et sauvegarder
-      if (col === null || row === null || cellMap[`${col},${row}`]) {
-        let tries = 0;
-        do { col = Math.floor(Math.random()*COLS); row = Math.floor(Math.random()*ROWS); tries++; }
-        while (cellMap[`${col},${row}`] && tries < 50);
-        pl.hexCol = col;
-        pl.hexRow = row;
-        needsSave = true;
+      // Si pas de coords valides, calculer de façon déterministe à partir de l'UID
+      if (col === null || row === null || col === undefined || row === undefined || cellMap[`${col},${row}`]) {
+        const coords = uidToCoords(p.uid || p.commanderName || 'unknown', i, cellMap, COLS, ROWS);
+        col = coords.col; row = coords.row;
       }
       cellMap[`${col},${row}`] = {
         type: 'enemy',
@@ -1506,14 +1520,7 @@ async function renderGalaxy() {
         uid: p.uid,
         playerData: p,
       };
-    }
-    // Sauvegarder les nouvelles coordonnées dans Firebase pour qu'elles soient permanentes
-    if (needsSave && p.uid) {
-      try {
-        const playerRef = doc(db, 'players', p.uid);
-        await updateDoc(playerRef, { planets: planets });
-      } catch(e) { console.warn('Could not fix coords for', p.uid, e); }
-    }
+    });
   }
 
   // Rendu HTML de la carte hexagonale
