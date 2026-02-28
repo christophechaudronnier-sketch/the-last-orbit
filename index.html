@@ -167,6 +167,37 @@ const T = {
     privateTarget: "Envoyer à",
     sendPrivate: "ENVOYER L'OFFRE",
     spacePort: "Port Spatial",
+    alliance: "Alliance",
+    allianceTitle: "Diplomatie & Alliance",
+    allianceSub: "Unissez-vous avec d'autres empires.",
+    createAlliance: "CRÉER UNE ALLIANCE",
+    allianceName: "Nom de l'alliance",
+    leaveAlliance: "QUITTER L'ALLIANCE",
+    disbandAlliance: "DISSOUDRE L'ALLIANCE",
+    myAlliance: "Mon Alliance",
+    members: "Membres",
+    pendingRequests: "Demandes en attente",
+    allianceChat: "Chat de l'alliance",
+    sendMessage: "Envoyer",
+    noAlliance: "Vous n'appartenez à aucune alliance.",
+    noRequests: "Aucune demande en attente.",
+    noMessages: "Aucun message pour le moment.",
+    requestJoin: "DEMANDER À REJOINDRE",
+    accept: "✅ Accepter",
+    decline: "❌ Refuser",
+    allianceCreated: "Alliance créée !",
+    allianceJoinRequested: "Demande envoyée !",
+    allianceLeft: "Vous avez quitté l'alliance.",
+    allianceDisbanded: "Alliance dissoute.",
+    allianceFull: "Cette alliance est complète (5 membres max).",
+    allianceAlready: "Vous appartenez déjà à une alliance.",
+    allianceCombatLeave: "Impossible de quitter pendant un combat !",
+    allianceNoName: "Entrez un nom pour l'alliance.",
+    chief: "Chef",
+    member: "Membre",
+    availableAlliances: "Alliances disponibles",
+    noAvailableAlliances: "Aucune alliance ouverte pour le moment.",
+    messagePlaceholder: "Tapez un message...",
   },
   en: {
     title: "THE LAST ORBIT",
@@ -308,6 +339,37 @@ const T = {
     privateTarget: "Send to",
     sendPrivate: "SEND OFFER",
     spacePort: "Space Port",
+    alliance: "Alliance",
+    allianceTitle: "Diplomacy & Alliance",
+    allianceSub: "Unite with other empires.",
+    createAlliance: "CREATE ALLIANCE",
+    allianceName: "Alliance name",
+    leaveAlliance: "LEAVE ALLIANCE",
+    disbandAlliance: "DISBAND ALLIANCE",
+    myAlliance: "My Alliance",
+    members: "Members",
+    pendingRequests: "Pending Requests",
+    allianceChat: "Alliance Chat",
+    sendMessage: "Send",
+    noAlliance: "You don't belong to any alliance.",
+    noRequests: "No pending requests.",
+    noMessages: "No messages yet.",
+    requestJoin: "REQUEST TO JOIN",
+    accept: "✅ Accept",
+    decline: "❌ Decline",
+    allianceCreated: "Alliance created!",
+    allianceJoinRequested: "Request sent!",
+    allianceLeft: "You left the alliance.",
+    allianceDisbanded: "Alliance disbanded.",
+    allianceFull: "This alliance is full (5 members max).",
+    allianceAlready: "You already belong to an alliance.",
+    allianceCombatLeave: "Cannot leave during an active combat!",
+    allianceNoName: "Enter a name for the alliance.",
+    chief: "Chief",
+    member: "Member",
+    availableAlliances: "Available Alliances",
+    noAvailableAlliances: "No open alliances at the moment.",
+    messagePlaceholder: "Type a message...",
   }
 };
 
@@ -863,6 +925,272 @@ window._confirmAttack = async () => {
   } catch(e) { notify(lang==='fr'?'Erreur d\'envoi':'Send error', true); }
 };
 
+// ========== ALLIANCE ==========
+
+let _allianceUnsub = null; // listener chat temps réel
+
+async function getAlliances() {
+  const snap = await getDocs(collection(db, 'alliances'));
+  const list = [];
+  snap.forEach(d => list.push({ ...d.data(), id: d.id }));
+  return list;
+}
+
+async function getMyAlliance() {
+  if (!G || !G.allianceId) return null;
+  const ref = doc(db, 'alliances', G.allianceId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return null;
+  return { ...snap.data(), id: snap.id };
+}
+
+window._createAlliance = async () => {
+  const name = document.getElementById('alliance-create-name')?.value?.trim();
+  if (!name) { notify(t('allianceNoName'), true); return; }
+  if (G.allianceId) { notify(t('allianceAlready'), true); return; }
+  try {
+    const ref = await addDoc(collection(db, 'alliances'), {
+      name,
+      chiefUid: currentUser.uid,
+      chiefName: G.commander,
+      members: [{ uid: currentUser.uid, name: G.commander }],
+      requests: [],
+      messages: [],
+      createdAt: serverTimestamp()
+    });
+    G.allianceId = ref.id;
+    await saveGame();
+    notify(t('allianceCreated'));
+    renderAlliance();
+  } catch(e) { notify('Erreur', true); }
+};
+
+window._requestJoin = async (allianceId) => {
+  if (G.allianceId) { notify(t('allianceAlready'), true); return; }
+  const ref = doc(db, 'alliances', allianceId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return;
+  const data = snap.data();
+  if (data.members.length >= 5) { notify(t('allianceFull'), true); return; }
+  // éviter doublons
+  const already = data.requests?.find(r => r.uid === currentUser.uid);
+  if (already) { notify(t('allianceJoinRequested')); return; }
+  await updateDoc(ref, {
+    requests: [...(data.requests||[]), { uid: currentUser.uid, name: G.commander }]
+  });
+  notify(t('allianceJoinRequested'));
+  renderAlliance();
+};
+
+window._acceptRequest = async (requesterUid, requesterName) => {
+  const alliance = await getMyAlliance();
+  if (!alliance) return;
+  if (alliance.members.length >= 5) { notify(t('allianceFull'), true); return; }
+  const newMembers = [...alliance.members, { uid: requesterUid, name: requesterName }];
+  const newRequests = alliance.requests.filter(r => r.uid !== requesterUid);
+  await updateDoc(doc(db, 'alliances', alliance.id), { members: newMembers, requests: newRequests });
+  // Mettre à jour le compte du joueur accepté dans Firebase (clé = uid)
+  try {
+    const playerRef = doc(db, 'players', requesterUid);
+    const playerSnap = await getDoc(playerRef);
+    if (playerSnap.exists()) {
+      const pd = playerSnap.data();
+      pd.allianceId = alliance.id;
+      await setDoc(playerRef, pd);
+    }
+  } catch(e) { console.warn('Could not update accepted player:', e); }
+  notify(`✅ ${requesterName} rejoint l'alliance !`);
+  renderAlliance();
+};
+
+window._declineRequest = async (requesterUid) => {
+  const alliance = await getMyAlliance();
+  if (!alliance) return;
+  const newRequests = alliance.requests.filter(r => r.uid !== requesterUid);
+  await updateDoc(doc(db, 'alliances', alliance.id), { requests: newRequests });
+  renderAlliance();
+};
+
+window._leaveAlliance = async () => {
+  // Vérifier si combat en cours
+  const attacksSnap = await getDocs(query(collection(db, 'attacks'), where('attackerUid','==',currentUser.uid)));
+  let inCombat = false;
+  attacksSnap.forEach(d => { if (d.data().status === 'pending') inCombat = true; });
+  if (inCombat) { notify(t('allianceCombatLeave'), true); return; }
+
+  const alliance = await getMyAlliance();
+  if (!alliance) return;
+
+  if (alliance.chiefUid === currentUser.uid) {
+    // Le chef dissout l'alliance
+    if (!confirm(lang==='fr'?"En tant que chef, quitter va dissoudre l'alliance. Continuer ?":"As chief, leaving will disband the alliance. Continue?")) return;
+    // Retirer allianceId de tous les membres
+    for (const m of alliance.members) {
+      try {
+        const playerRef = doc(db, 'players', m.uid);
+        const ps = await getDoc(playerRef);
+        if (ps.exists()) {
+          const pd = ps.data();
+          pd.allianceId = null;
+          await setDoc(playerRef, pd);
+        }
+      } catch(e) {}
+    }
+    await deleteDoc(doc(db, 'alliances', alliance.id));
+    G.allianceId = null;
+    await saveGame();
+    notify(t('allianceDisbanded'));
+  } else {
+    const newMembers = alliance.members.filter(m => m.uid !== currentUser.uid);
+    await updateDoc(doc(db, 'alliances', alliance.id), { members: newMembers });
+    G.allianceId = null;
+    await saveGame();
+    notify(t('allianceLeft'));
+  }
+  if (_allianceUnsub) { _allianceUnsub(); _allianceUnsub = null; }
+  renderAlliance();
+};
+
+window._sendAllianceMessage = async () => {
+  const inp = document.getElementById('alliance-chat-input');
+  const text = inp?.value?.trim();
+  if (!text || !G.allianceId) return;
+  const ref = doc(db, 'alliances', G.allianceId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return;
+  const msgs = snap.data().messages || [];
+  msgs.push({ uid: currentUser.uid, name: G.commander, text, ts: Date.now() });
+  // Garder max 100 messages
+  if (msgs.length > 100) msgs.splice(0, msgs.length - 100);
+  await updateDoc(ref, { messages: msgs });
+  inp.value = '';
+};
+
+async function renderAlliance() {
+  const el = document.getElementById('alliance-content');
+  if (!el) return;
+
+  // Stopper ancien listener
+  if (_allianceUnsub) { _allianceUnsub(); _allianceUnsub = null; }
+
+  el.innerHTML = `<div style="text-align:center;color:var(--text2);padding:40px">${t('loading')}</div>`;
+
+  if (G.allianceId) {
+    // --- MEMBRE D'UNE ALLIANCE ---
+    const alliance = await getMyAlliance();
+    if (!alliance) { G.allianceId = null; await saveGame(); renderAlliance(); return; }
+
+    const isChief = alliance.chiefUid === currentUser.uid;
+    const requests = alliance.requests || [];
+    const members = alliance.members || [];
+
+    let html = `
+      <div style="background:rgba(0,200,255,.06);border:1px solid var(--accent);border-radius:6px;padding:20px;margin-bottom:20px">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+          <div>
+            <div style="font-family:'Orbitron',monospace;font-size:1.2rem;color:var(--accent)">🤝 ${alliance.name}</div>
+            <div style="font-size:.8rem;color:var(--text2);margin-top:4px">${members.length}/5 ${t('members')} · ${t('chief')} : ${alliance.chiefName}</div>
+          </div>
+          <button onclick="window._leaveAlliance()" style="background:transparent;border:1px solid var(--danger);color:var(--danger);padding:8px 16px;cursor:pointer;border-radius:3px;font-size:.8rem">${isChief ? t('disbandAlliance') : t('leaveAlliance')}</button>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+        <div style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:6px;padding:16px">
+          <div style="font-family:'Orbitron',monospace;font-size:.75rem;color:var(--text2);letter-spacing:2px;margin-bottom:12px">${t('members').toUpperCase()}</div>
+          ${members.map(m => `
+            <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05)">
+              <span style="font-size:1rem">${m.uid === alliance.chiefUid ? '👑' : '🔹'}</span>
+              <span style="flex:1">${m.name}</span>
+              <span style="font-size:.7rem;color:var(--text2)">${m.uid === alliance.chiefUid ? t('chief') : t('member')}</span>
+            </div>`).join('')}
+        </div>`;
+
+    if (isChief) {
+      html += `
+        <div style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:6px;padding:16px">
+          <div style="font-family:'Orbitron',monospace;font-size:.75rem;color:var(--text2);letter-spacing:2px;margin-bottom:12px">${t('pendingRequests').toUpperCase()}</div>
+          ${requests.length === 0 ? `<div style="color:var(--text2);font-size:.85rem">${t('noRequests')}</div>` :
+            requests.map(r => `
+              <div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,.05)">
+                <div style="margin-bottom:6px">${r.name}</div>
+                <div style="display:flex;gap:8px">
+                  <button onclick="window._acceptRequest('${r.uid}','${r.name}')" class="btn" style="padding:4px 10px;font-size:.75rem">${t('accept')}</button>
+                  <button onclick="window._declineRequest('${r.uid}')" style="background:transparent;border:1px solid var(--danger);color:var(--danger);padding:4px 10px;cursor:pointer;border-radius:3px;font-size:.75rem">${t('decline')}</button>
+                </div>
+              </div>`).join('')}
+        </div>`;
+    } else {
+      html += `<div></div>`;
+    }
+
+    html += `</div>
+      <div style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:6px;padding:16px">
+        <div style="font-family:'Orbitron',monospace;font-size:.75rem;color:var(--text2);letter-spacing:2px;margin-bottom:12px">${t('allianceChat').toUpperCase()}</div>
+        <div id="alliance-chat-messages" style="min-height:150px;max-height:250px;overflow-y:auto;margin-bottom:12px;display:flex;flex-direction:column;gap:6px">
+          <div style="color:var(--text2);font-size:.85rem">${t('loading')}</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <input id="alliance-chat-input" type="text" placeholder="${t('messagePlaceholder')}"
+            style="flex:1;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:var(--text);padding:8px 12px;border-radius:3px;font-family:'Rajdhani',sans-serif;font-size:.9rem"
+            onkeydown="if(event.key==='Enter')window._sendAllianceMessage()">
+          <button onclick="window._sendAllianceMessage()" class="btn" style="padding:8px 16px">${t('sendMessage')}</button>
+        </div>
+      </div>`;
+
+    el.innerHTML = html;
+
+    // Écoute temps réel du chat
+    _allianceUnsub = onSnapshot(doc(db, 'alliances', G.allianceId), (snap) => {
+      if (!snap.exists()) return;
+      const msgs = snap.data().messages || [];
+      const chatEl = document.getElementById('alliance-chat-messages');
+      if (!chatEl) return;
+      if (msgs.length === 0) {
+        chatEl.innerHTML = `<div style="color:var(--text2);font-size:.85rem">${t('noMessages')}</div>`;
+        return;
+      }
+      chatEl.innerHTML = msgs.map(m => `
+        <div style="padding:6px 10px;background:${m.uid===currentUser.uid?'rgba(0,200,255,.08)':'rgba(255,255,255,.04)'};border-radius:4px">
+          <span style="font-size:.72rem;color:var(--accent);margin-right:8px">${m.uid===alliance.chiefUid?'👑 ':''}${m.name}</span>
+          <span style="font-size:.88rem">${m.text}</span>
+          <span style="font-size:.65rem;color:var(--text2);float:right">${new Date(m.ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</span>
+        </div>`).join('');
+      chatEl.scrollTop = chatEl.scrollHeight;
+    });
+
+  } else {
+    // --- PAS D'ALLIANCE ---
+    const allAlliances = await getAlliances();
+    const openAlliances = allAlliances.filter(a => a.members.length < 5);
+
+    let html = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
+        <div style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:6px;padding:20px">
+          <div style="font-family:'Orbitron',monospace;font-size:.75rem;color:var(--text2);letter-spacing:2px;margin-bottom:16px">${t('createAlliance').toUpperCase()}</div>
+          <input id="alliance-create-name" type="text" placeholder="${t('allianceName')}"
+            style="width:100%;box-sizing:border-box;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:var(--text);padding:10px 12px;border-radius:3px;font-family:'Rajdhani',sans-serif;font-size:.9rem;margin-bottom:12px">
+          <button onclick="window._createAlliance()" class="btn" style="width:100%;padding:10px">${t('createAlliance')}</button>
+        </div>
+        <div style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:6px;padding:20px">
+          <div style="font-family:'Orbitron',monospace;font-size:.75rem;color:var(--text2);letter-spacing:2px;margin-bottom:16px">${t('availableAlliances').toUpperCase()}</div>
+          ${openAlliances.length === 0 ? `<div style="color:var(--text2);font-size:.85rem">${t('noAvailableAlliances')}</div>` :
+            openAlliances.map(a => `
+              <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.05)">
+                <div>
+                  <div style="font-weight:600">🤝 ${a.name}</div>
+                  <div style="font-size:.75rem;color:var(--text2)">${a.members.length}/5 · ${t('chief')} : ${a.chiefName}</div>
+                </div>
+                <button onclick="window._requestJoin('${a.id}')" class="btn" style="padding:5px 12px;font-size:.75rem">${t('requestJoin')}</button>
+              </div>`).join('')}
+        </div>
+      </div>
+      <div style="color:var(--text2);font-size:.85rem;text-align:center">${t('noAlliance')}</div>`;
+
+    el.innerHTML = html;
+  }
+}
+
 // ========== UI ==========
 function fmt(n) {
   if (n >= 1000000) return (n/1000000).toFixed(1)+'M';
@@ -888,6 +1216,7 @@ function renderPage(id) {
   else if (id==='log') renderLog();
   else if (id==='galaxy') renderGalaxy();
   else if (id==='market') { window._marketTab = window._marketTab||'public'; renderMarket(); }
+  else if (id==='alliance') renderAlliance();
   else updateUI();
 }
 
@@ -2220,6 +2549,7 @@ window._notify = notify;
       <div class="nav-section">UNIVERS</div>
       <button class="nav-btn" onclick="window._showPage('galaxy')" id="nav-galaxy"><span class="nav-icon">🌌</span><span data-tkey="galaxy">Galaxie</span></button>
       <button class="nav-btn" onclick="window._showPage('market')" id="nav-market"><span class="nav-icon">💱</span><span data-tkey="market">Marché</span></button>
+      <button class="nav-btn" onclick="window._showPage('alliance')" id="nav-alliance"><span class="nav-icon">🤝</span><span data-tkey="alliance">Alliance</span></button>
       <button class="nav-btn" onclick="window._showPage('log')" id="nav-log"><span class="nav-icon">📜</span><span data-tkey="log">Journal</span></button>
     </nav>
 
@@ -2326,6 +2656,12 @@ window._notify = notify;
         <div class="page-title" data-tkey="log">Journal</div>
         <div class="page-subtitle">Historique de vos actions.</div>
         <div id="log-display"></div>
+      </div>
+
+      <div class="page" id="page-alliance">
+        <div class="page-title" data-tkey="allianceTitle">Diplomatie & Alliance</div>
+        <div class="page-subtitle" data-tkey="allianceSub">Unissez-vous avec d'autres empires.</div>
+        <div id="alliance-content"></div>
       </div>
 
     </div>
