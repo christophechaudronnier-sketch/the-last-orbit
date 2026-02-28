@@ -1050,37 +1050,111 @@ async function renderGalaxy() {
   if (!el) return;
   el.innerHTML = `<div style="color:var(--text2);font-style:italic">${t('loading')}</div>`;
   const players = await loadGalaxy();
-  if (players.length === 0) {
-    el.innerHTML = `<div class="queue-empty">${t('noPlayers')}</div>`;
-    return;
-  }
-  el.innerHTML = players.map(p => {
-    const power = { att: (p.fleet?.fighter||0)*50 + (p.fleet?.cruiser||0)*200 + (p.fleet?.battleship||0)*1000 };
-    const defPow = calcPlayerDefensePower(p);
-    return `<div class="card" style="margin-bottom:12px">
-      <div class="card-header">
-        <span class="card-icon">${p.planetEmoji||'🪐'}</span>
-        <div>
-          <div class="card-title">${p.planetName||'???'}</div>
-          <div style="font-size:.8rem;color:var(--text2)">${p.commanderName||'Commander'} · ${t('planetCoords')} ${p.sector||'?'}</div>
-        </div>
-        <div class="card-level" style="color:var(--accent2)">${lang==='fr'?'Tour':'Turn'} ${p.turn||1}</div>
+
+  // Secteurs occupés (nos planètes + joueurs)
+  const occupiedSectors = [
+    ...(G.planets||[]).map(p=>p.sector),
+    ...players.map(p => p.planets ? p.planets[0]?.sector : p.sector).filter(Boolean),
+  ];
+  const emptyPlanets = generateEmptyPlanets(occupiedSectors);
+
+  let html = '';
+
+  // Section : planètes à coloniser
+  if (G.planets.length < 3 && emptyPlanets.length > 0) {
+    html += `<div style="margin-bottom:24px">
+      <div style="font-family:'Orbitron',monospace;font-size:.75rem;color:var(--accent3);letter-spacing:2px;margin-bottom:12px">
+        🌌 ${lang==='fr'?'PLANÈTES DISPONIBLES — colonisation possible':'AVAILABLE PLANETS — can be colonized'}
       </div>
-      <div style="display:flex;gap:20px;font-size:.85rem;margin-top:4px;margin-bottom:14px">
-        <span style="color:var(--metal)">🪨 ${fmt(p.resources?.metal||0)}</span>
-        <span style="color:var(--crystal)">💎 ${fmt(p.resources?.crystal||0)}</span>
-        <span style="color:var(--accent2)">⚔️ ${fmt(power.att)}</span>
-        <span style="color:var(--crystal)">🛡️ ${fmt(defPow)}</span>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px">
+        ${emptyPlanets.map(ep => {
+          const hasCol = G.planets.some(p=>(p.fleet||{}).colonizer>0);
+          const canCol = G.planets.length < 3 && hasCol && !G.pendingColonization;
+          let btnLabel = t('colonize');
+          if (G.pendingColonization) btnLabel = `⏳ ${lang==='fr'?'Colonisation en cours':'Colonization in progress'}`;
+          else if (G.planets.length >= 3) btnLabel = `🔒 MAX`;
+          else if (!hasCol) btnLabel = `🚫 ${lang==='fr'?'Pas de colonisateur':'No colonizer'}`;
+          return `<div class="card" style="border-color:rgba(127,255,107,.25)">
+            <div class="card-header">
+              <span class="card-icon">${ep.emoji}</span>
+              <div>
+                <div class="card-title">${ep.name}</div>
+                <div style="font-size:.8rem;color:var(--text2)">${t('planetCoords')} ${ep.sector}</div>
+              </div>
+              <div class="card-level" style="color:var(--accent3)">LIBRE</div>
+            </div>
+            <div style="font-size:.82rem;color:var(--text2);margin-bottom:12px;line-height:1.5">
+              ${lang==='fr'?'Planète non colonisée. Nécessite un vaisseau colonisateur.':'Uncolonized planet. Requires a colonizer ship.'}
+            </div>
+            <button class="btn" style="border-color:var(--accent3);color:var(--accent3);background:rgba(127,255,107,.05)"
+              onclick="window._openColonizeModal('${ep.name.replace(/'/g,"\\'")}',${ep.sector},'${ep.emoji}')"
+              ${!canCol?'disabled':''}>
+              ${btnLabel}
+            </button>
+          </div>`;
+        }).join('')}
       </div>
-      <button class="btn orange" style="width:auto;padding:8px 20px;font-size:.8rem"
-        onclick="window._openAttackModal('${p.uid||''}','${(p.commanderName||'').replace(/'/g,"\\'")}','${(p.planetName||'').replace(/'/g,"\\'")}')">
-        ${t('attackPlayer')}
-      </button>
     </div>`;
-  }).join('');
+  }
+
+  // Section : nos colonies (si on en a plusieurs)
+  if (G.planets.length > 1) {
+    html += `<div style="margin-bottom:24px">
+      <div style="font-family:'Orbitron',monospace;font-size:.75rem;color:var(--accent);letter-spacing:2px;margin-bottom:12px">
+        🌍 ${lang==='fr'?'VOS PLANÈTES':'YOUR PLANETS'}
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px">
+        ${G.planets.map((p, i) => `<div class="card" style="border-color:rgba(0,200,255,.3)">
+          <div class="card-header">
+            <span class="card-icon">${p.emoji}</span>
+            <div>
+              <div class="card-title">${p.name}</div>
+              <div style="font-size:.8rem;color:var(--text2)">${t('planetCoords')} ${p.sector} · ${i===0?(lang==='fr'?'Principale':'Main'):(lang==='fr'?'Colonie':'Colony')+' '+i}</div>
+            </div>
+          </div>
+          <div style="font-size:.85rem;color:var(--text2)">
+            ⛏️ ${p.buildings?.mine_metal||0} 💠 ${p.buildings?.mine_crystal||0} · 🚀 ${Object.values(p.fleet||{}).reduce((a,b)=>a+b,0)} ${lang==='fr'?'vaisseaux':'ships'}
+          </div>
+        </div>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  // Section : autres joueurs
+  if (players.length > 0) {
+    html += `<div style="font-family:'Orbitron',monospace;font-size:.75rem;color:var(--text2);letter-spacing:2px;margin-bottom:12px">
+      👥 ${lang==='fr'?'AUTRES EMPIRES':'OTHER EMPIRES'}
+    </div>`;
+    html += players.map(p => {
+      const mainPlanet = (p.planets&&p.planets.length>0) ? p.planets[0] : { name: p.planetName, emoji: p.planetEmoji, sector: p.sector, fleet: p.fleet||{} };
+      const defPow = calcPlayerDefensePower(p);
+      return `<div class="card" style="margin-bottom:12px">
+        <div class="card-header">
+          <span class="card-icon">${mainPlanet.emoji||'🪐'}</span>
+          <div>
+            <div class="card-title">${mainPlanet.name||'???'}</div>
+            <div style="font-size:.8rem;color:var(--text2)">${p.commanderName||'Commander'} · ${t('planetCoords')} ${mainPlanet.sector||'?'}${p.planets&&p.planets.length>1?' · '+p.planets.length+'🌍':''}</div>
+          </div>
+          <div class="card-level" style="color:var(--accent2)">${lang==='fr'?'Tour':'Turn'} ${p.turn||1}</div>
+        </div>
+        <div style="display:flex;gap:20px;font-size:.85rem;margin-top:4px;margin-bottom:14px">
+          <span style="color:var(--metal)">🪨 ${fmt(p.resources?.metal||0)}</span>
+          <span style="color:var(--crystal)">💎 ${fmt(p.resources?.crystal||0)}</span>
+          <span style="color:var(--crystal)">🛡️ ${fmt(defPow)}</span>
+        </div>
+        <button class="btn orange" style="width:auto;padding:8px 20px;font-size:.8rem"
+          onclick="window._openAttackModal('${p.uid||''}','${(p.commanderName||'').replace(/'/g,"\\'")}','${(mainPlanet.name||'').replace(/'/g,"\\'")}')">
+          ${t('attackPlayer')}
+        </button>
+      </div>`;
+    }).join('');
+  } else if (emptyPlanets.length === 0) {
+    html += `<div class="queue-empty">${t('noPlayers')}</div>`;
+  }
+
+  el.innerHTML = html || `<div class="queue-empty">${t('noPlayers')}</div>`;
   document.getElementById('player-count').textContent = players.length + ' ' + t('playerCount');
 }
-
 function renderLog() {
   const el = document.getElementById('log-display');
   if (!el) return;
