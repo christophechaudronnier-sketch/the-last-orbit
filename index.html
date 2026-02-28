@@ -120,6 +120,22 @@ const T = {
     incomingAttack: "⚠️ ATTAQUE ENTRANTE",
     noAttacks: "Aucune attaque en cours.",
     attacks: "Attaques",
+    colonies: "Colonies",
+    colonyTab: "Planètes",
+    mainPlanet: "Planète principale",
+    colony: "Colonie",
+    emptyPlanet: "Planète inoccupée",
+    colonize: "🚀 COLONISER",
+    colonizeTitle: "Coloniser cette planète",
+    colonizeDesc: "Envoyez un vaisseau colonisateur pour prendre possession de cette planète.",
+    colonizeSend: "ENVOYER LE COLONISATEUR",
+    colonizeNoShip: "Vous n\'avez pas de vaisseau colonisateur disponible !",
+    colonizeAlready: "Une colonisation est déjà en cours.",
+    colonizeMax: "Vous avez atteint le maximum de 3 planètes.",
+    colonizeLaunched: "Colonisateur envoyé ! Résultats au prochain tour.",
+    colonizeSuccess: "🌍 Nouvelle planète colonisée !",
+    selectPlanet: "Planète active :",
+    planetSlot: "Emplacement libre",
   },
   en: {
     title: "THE LAST ORBIT",
@@ -214,6 +230,22 @@ const T = {
     incomingAttack: "⚠️ INCOMING ATTACK",
     noAttacks: "No attacks in progress.",
     attacks: "Attacks",
+    colonies: "Colonies",
+    colonyTab: "Planets",
+    mainPlanet: "Main Planet",
+    colony: "Colony",
+    emptyPlanet: "Uninhabited Planet",
+    colonize: "🚀 COLONIZE",
+    colonizeTitle: "Colonize this planet",
+    colonizeDesc: "Send a colonizer ship to take possession of this planet.",
+    colonizeSend: "SEND COLONIZER",
+    colonizeNoShip: "You have no colonizer ship available!",
+    colonizeAlready: "A colonization is already in progress.",
+    colonizeMax: "You have reached the maximum of 3 planets.",
+    colonizeLaunched: "Colonizer sent! Results next turn.",
+    colonizeSuccess: "🌍 New planet colonized!",
+    selectPlanet: "Active planet:",
+    planetSlot: "Empty slot",
   }
 };
 
@@ -273,7 +305,27 @@ async function loadGame() {
   if (!currentUser) return false;
   try {
     const snap = await getDoc(doc(db, 'players', currentUser.uid));
-    if (snap.exists()) { G = snap.data(); return true; }
+    if (snap.exists()) {
+      G = snap.data();
+      // Migration : ancien format (1 planète) → nouveau format (tableau planets[])
+      if (!G.planets) {
+        G.planets = [{
+          name: G.planetName || 'Nexara Prime',
+          emoji: G.planetEmoji || '🪐',
+          sector: G.sector || 1,
+          isMain: true,
+          buildings: G.buildings || { mine_metal:0, mine_crystal:0, power_plant:0, shipyard:0, defense_turret:0, research_lab:0 },
+          fleet: G.fleet || { fighter:0, cruiser:0, battleship:0, colonizer:0 },
+          defense: G.defense || { shields:0, cannons:0, rockets:0 },
+          buildQueue: G.buildQueue || [],
+        }];
+        G.pendingColonization = G.pendingColonization || null;
+        // On garde les anciens champs pour l'instant mais on sauve le nouveau format
+        await saveGame();
+      }
+      activePlanetIndex = 0;
+      return true;
+    }
     return false;
   } catch(e) { console.error('Load error:', e); return false; }
 }
@@ -288,24 +340,40 @@ async function loadGalaxy() {
 }
 
 // ========== GAME LOGIC ==========
-function createNewGame(planetName, commanderName) {
+function makePlanet(name, emoji, sector, isMain=true) {
   const emojis = ['🪐','🌍','🌑','🌕','🔴','🟤','🔵'];
+  return {
+    name: name || 'Nexara Prime',
+    emoji: emoji || emojis[Math.floor(Math.random()*emojis.length)],
+    sector: sector || Math.floor(Math.random()*9)+1,
+    isMain,
+    buildings: { mine_metal:0, mine_crystal:0, power_plant:0, shipyard:0, defense_turret:0, research_lab:0 },
+    fleet: { fighter:0, cruiser:0, battleship:0, colonizer:0 },
+    defense: { shields:0, cannons:0, rockets:0 },
+    buildQueue: [],
+  };
+}
+
+// Planète active en cours d'édition (index dans G.planets)
+let activePlanetIndex = 0;
+function AP() { return G.planets[activePlanetIndex]; }
+
+function createNewGame(planetName, commanderName) {
   G = {
-    planetName: planetName || 'Nexara Prime',
     commanderName: commanderName || 'Commander',
     turn: 1,
     nextTurnTime: nextMidnight(),
     resources: { metal: 3000, crystal: 1000, energy: 200 },
-    buildings: { mine_metal:0, mine_crystal:0, power_plant:0, shipyard:0, defense_turret:0, research_lab:0 },
     research: { combustion:0, weapons:0, shields:0, espionage:0, hyperdrive:0 },
-    fleet: { fighter:0, cruiser:0, battleship:0, colonizer:0 },
-    defense: { shields:0, cannons:0, rockets:0 },
-    buildQueue: [],
+    planets: [ makePlanet(planetName, null, null, true) ],
     activeMissions: [],
+    pendingColonization: null,
     log: [],
-    planetEmoji: emojis[Math.floor(Math.random()*emojis.length)],
-    sector: Math.floor(Math.random()*9)+1,
     lastSeen: Date.now(),
+    // Compatibilité rétro — on garde aussi les champs plats pour ne pas casser l'ancien code
+    get planetName() { return this.planets[0].name; },
+    get planetEmoji() { return this.planets[0].emoji; },
+    get sector() { return this.planets[0].sector; },
   };
 }
 
@@ -326,10 +394,12 @@ function getResearchCost(r) {
 }
 function getProduction() {
   const prod = { metal:20, crystal:10, energy:10 };
-  BUILDINGS.forEach(b => {
-    const lv = G.buildings[b.id];
-    if (!lv || !b.production) return;
-    prod[b.production] += b.prodBase * lv;
+  (G.planets||[]).forEach(planet => {
+    BUILDINGS.forEach(b => {
+      const lv = (planet.buildings||{})[b.id]||0;
+      if (!lv || !b.production) return;
+      prod[b.production] += b.prodBase * lv;
+    });
   });
   return prod;
 }
@@ -343,8 +413,9 @@ function spend(cost) {
 }
 function meetsReqs(requires) {
   if (!requires) return true;
+  const planet = AP();
   for (const [k,v] of Object.entries(requires)) {
-    const actual = G.buildings[k] !== undefined ? G.buildings[k] : G.research[k] !== undefined ? G.research[k] : 0;
+    const actual = (planet.buildings||{})[k] !== undefined ? (planet.buildings||{})[k] : G.research[k] !== undefined ? G.research[k] : 0;
     if (actual < v) return false;
   }
   return true;
@@ -353,15 +424,19 @@ function totalFleetPower() {
   const wB = 1 + G.research['weapons'] * 0.25;
   const sB = 1 + G.research['shields'] * 0.25;
   let att = 0, def = 0;
-  att += G.fleet.fighter * 50 * wB;
-  att += G.fleet.cruiser * 200 * wB;
-  att += G.fleet.battleship * 1000 * wB;
-  def += G.fleet.fighter * 20 * sB;
-  def += G.fleet.cruiser * 100 * sB;
-  def += G.fleet.battleship * 500 * sB;
-  def += G.defense.cannons * 30;
-  def += G.defense.rockets * 60;
-  def += G.defense.shields * 50;
+  (G.planets||[]).forEach(planet => {
+    const fl = planet.fleet||{};
+    const df = planet.defense||{};
+    att += (fl.fighter||0) * 50 * wB;
+    att += (fl.cruiser||0) * 200 * wB;
+    att += (fl.battleship||0) * 1000 * wB;
+    def += (fl.fighter||0) * 20 * sB;
+    def += (fl.cruiser||0) * 100 * sB;
+    def += (fl.battleship||0) * 500 * sB;
+    def += (df.cannons||0) * 30;
+    def += (df.rockets||0) * 60;
+    def += (df.shields||0) * 50;
+  });
   return { att: Math.floor(att), def: Math.floor(def) };
 }
 
@@ -382,19 +457,37 @@ async function processTurn() {
   G.resources.crystal += prod.crystal;
   G.resources.energy += prod.energy;
 
-  for (const item of G.buildQueue) {
-    if (item.type === 'building') {
-      G.buildings[item.id] = (G.buildings[item.id]||0) + 1;
-      addLog(`✅ ${item.name} ${t('level')}${G.buildings[item.id]}`, 'info');
-    } else if (item.type === 'research') {
-      G.research[item.id] = (G.research[item.id]||0) + 1;
-      addLog(`✅ ${item.name} ${t('level')}${G.research[item.id]}`, 'info');
-    } else if (item.type === 'ship') {
-      G.fleet[item.id] = (G.fleet[item.id]||0) + item.qty;
-      addLog(`✅ ${item.qty}x ${item.name}`, 'info');
+  // Traiter les files de construction de chaque planète
+  (G.planets||[]).forEach((planet, idx) => {
+    const queue = planet.buildQueue||[];
+    for (const item of queue) {
+      if (item.type === 'building') {
+        planet.buildings[item.id] = (planet.buildings[item.id]||0) + 1;
+        const planetLabel = idx===0 ? '' : ` (${planet.name})`;
+        addLog(`✅ ${item.name} ${t('level')}${planet.buildings[item.id]}${planetLabel}`, 'info');
+      } else if (item.type === 'research') {
+        G.research[item.id] = (G.research[item.id]||0) + 1;
+        addLog(`✅ ${item.name} ${t('level')}${G.research[item.id]}`, 'info');
+      } else if (item.type === 'ship') {
+        planet.fleet[item.id] = (planet.fleet[item.id]||0) + item.qty;
+        const planetLabel = idx===0 ? '' : ` (${planet.name})`;
+        addLog(`✅ ${item.qty}x ${item.name}${planetLabel}`, 'info');
+      }
     }
+    planet.buildQueue = [];
+  });
+
+  // Traiter la colonisation en cours
+  if (G.pendingColonization) {
+    const pc = G.pendingColonization;
+    if (G.planets.length < 3) {
+      const emojis = ['🪐','🌍','🌑','🌕','🔴','🟤','🔵'];
+      const newPlanet = makePlanet(pc.planetName, emojis[Math.floor(Math.random()*emojis.length)], pc.sector, false);
+      G.planets.push(newPlanet);
+      addLog(`${t('colonizeSuccess')} ${pc.planetName} (Secteur ${pc.sector})`, 'victory');
+    }
+    G.pendingColonization = null;
   }
-  G.buildQueue = [];
 
   for (const m of G.activeMissions) processMissionResult(m);
   G.activeMissions = [];
@@ -426,8 +519,8 @@ function processMissionResult(m) {
       G.resources.metal += l.metal; G.resources.crystal += l.crystal;
       addLog(`💰 ${lang==='fr'?'Raid réussi':'Raid successful'} +${l.metal}🪨 +${l.crystal}💎`, 'victory');
     } else {
-      const lost = Math.floor(Math.random()*Math.min(G.fleet.fighter+1,2));
-      G.fleet.fighter = Math.max(0, G.fleet.fighter-lost);
+      const lost = Math.floor(Math.random()*Math.min((G.planets[0].fleet.fighter||0)+1,2));
+      G.planets[0].fleet.fighter = Math.max(0, (G.planets[0].fleet.fighter||0)-lost);
       addLog(`💰 ${lang==='fr'?'Raid échoué':'Raid failed'} −${lost} ${lang==='fr'?'chasseur(s)':'fighter(s)'}`, 'defeat');
     }
   } else if (m.type === 'attack') {
@@ -437,12 +530,12 @@ function processMissionResult(m) {
       G.resources.metal += l.metal; G.resources.crystal += l.crystal;
       addLog(`⚔️ ${lang==='fr'?'Assaut VICTORIEUX':'VICTORIOUS assault'} +${l.metal}🪨 +${l.crystal}💎`, 'victory');
     } else {
-      const lost = Math.floor(Math.random()*Math.min(G.fleet.fighter+1,5));
-      G.fleet.fighter = Math.max(0, G.fleet.fighter-lost);
+      const lost = Math.floor(Math.random()*Math.min((G.planets[0].fleet.fighter||0)+1,5));
+      G.planets[0].fleet.fighter = Math.max(0, (G.planets[0].fleet.fighter||0)-lost);
       addLog(`⚔️ ${lang==='fr'?'Assaut repoussé':'Assault repelled'} −${lost} ${lang==='fr'?'chasseur(s)':'fighter(s)'}`, 'defeat');
     }
   } else if (m.type === 'defend') {
-    G.defense.shields++;
+    G.planets[0].defense.shields++;
     addLog(`🛡️ ${lang==='fr'?'Patrouille terminée. Boucliers +1':'Patrol complete. Shields +1'}`, 'info');
   }
 }
@@ -471,14 +564,30 @@ function calcFleetPower(fleet, researchWeapons, researchShields) {
 // Calcule la puissance défensive totale d'un joueur (flotte + défenses planétaires)
 function calcPlayerDefensePower(playerData) {
   const sB = 1 + (playerData.research?.shields||0) * 0.25;
-  const fleet = playerData.fleet || {};
   let def = 0;
-  def += (fleet.fighter||0)    * 20  * sB;
-  def += (fleet.cruiser||0)    * 100 * sB;
-  def += (fleet.battleship||0) * 500 * sB;
-  def += (playerData.defense?.cannons||0) * 30;
-  def += (playerData.defense?.rockets||0) * 60;
-  def += (playerData.defense?.shields||0) * 50;
+  const planets = playerData.planets || [];
+  if (planets.length > 0) {
+    // Nouveau format multi-planètes
+    planets.forEach(planet => {
+      const fleet = planet.fleet||{};
+      const defense = planet.defense||{};
+      def += (fleet.fighter||0)    * 20  * sB;
+      def += (fleet.cruiser||0)    * 100 * sB;
+      def += (fleet.battleship||0) * 500 * sB;
+      def += (defense.cannons||0) * 30;
+      def += (defense.rockets||0) * 60;
+      def += (defense.shields||0) * 50;
+    });
+  } else {
+    // Ancien format (compatibilité rétro)
+    const fleet = playerData.fleet || {};
+    def += (fleet.fighter||0)    * 20  * sB;
+    def += (fleet.cruiser||0)    * 100 * sB;
+    def += (fleet.battleship||0) * 500 * sB;
+    def += (playerData.defense?.cannons||0) * 30;
+    def += (playerData.defense?.rockets||0) * 60;
+    def += (playerData.defense?.shields||0) * 50;
+  }
   return Math.floor(def);
 }
 
@@ -535,9 +644,10 @@ async function processIncomingAttacks() {
       const atk = attackSnap.data();
       const report = resolveCombat(atk.fleet, atk.attackerResearch, G);
 
-      // Applique les conséquences sur le défenseur
+      // Applique les conséquences sur le défenseur (planète principale)
+      const mainPlanet = G.planets[0];
       for (const [type, lost] of Object.entries(report.defLosses)) {
-        if (G.fleet[type] !== undefined) G.fleet[type] = Math.max(0, G.fleet[type] - lost);
+        if (mainPlanet.fleet[type] !== undefined) mainPlanet.fleet[type] = Math.max(0, mainPlanet.fleet[type] - lost);
       }
       if (report.victory) {
         G.resources.metal   = Math.max(0, G.resources.metal   - report.loot.metal);
@@ -567,7 +677,9 @@ async function processIncomingAttacks() {
       const fmtLocal = (n) => n >= 1000 ? (n/1000).toFixed(1)+'k' : String(n);
 
       for (const [type, lost] of Object.entries(r.atkLosses||{})) {
-        if (G.fleet[type] !== undefined) G.fleet[type] = Math.max(0, G.fleet[type] - lost);
+        // Retire les pertes de la planète principale
+        const mp = G.planets[0];
+        if (mp.fleet[type] !== undefined) mp.fleet[type] = Math.max(0, mp.fleet[type] - lost);
       }
       if (r.victory) {
         G.resources.metal   += r.loot?.metal  || 0;
@@ -587,11 +699,12 @@ async function processIncomingAttacks() {
 // Ouvre le modal d'attaque
 window._openAttackModal = (targetUid, targetName, targetPlanet) => {
   if (!G) return;
-  const totalFleet = Object.values(G.fleet).reduce((a,b)=>a+b,0);
+  const totalFleet = Object.values(G.planets[0].fleet||{}).reduce((a,b)=>a+b,0);
   if (totalFleet === 0) { notify(t('attackNoFleet'), true); return; }
 
   window._attackTarget = { uid: targetUid, name: targetName, planet: targetPlanet };
   window._attackFleet  = { fighter:0, cruiser:0, battleship:0, colonizer:0 };
+  window._attackSourcePlanet = G.planets[0]; // on attaque depuis la planète principale
 
   document.getElementById('attack-modal-title').textContent =
     `${t('attackTitle')} — ${targetPlanet}`;
@@ -599,7 +712,7 @@ window._openAttackModal = (targetUid, targetName, targetPlanet) => {
   const wB = 1+G.research['weapons']*0.25;
   const sB = 1+G.research['shields']*0.25;
   const rows = SHIPS.map(s => {
-    const owned = G.fleet[s.id]||0;
+    const owned = (G.planets[0].fleet||{})[s.id]||0;
     if (owned === 0) return '';
     return `<div class="attack-ship-row">
       <span style="font-size:1.5rem">${s.icon}</span>
@@ -622,7 +735,7 @@ window._openAttackModal = (targetUid, targetName, targetPlanet) => {
 };
 
 window._adjustAttackQty = (shipId, delta) => {
-  const owned = G.fleet[shipId]||0;
+  const owned = (G.planets[0].fleet||{})[shipId]||0;
   const current = window._attackFleet[shipId]||0;
   window._attackFleet[shipId] = Math.max(0, Math.min(owned, current + delta));
   const el = document.getElementById('atk-qty-'+shipId);
@@ -657,7 +770,7 @@ window._confirmAttack = async () => {
     await addDoc(collection(db, 'attacks'), {
       attackerUid: currentUser.uid,
       attackerName: G.commanderName,
-      attackerPlanet: G.planetName,
+      attackerPlanet: G.planets[0].name,
       targetUid: window._attackTarget.uid,
       targetName: window._attackTarget.name,
       targetPlanet: window._attackTarget.planet,
@@ -709,28 +822,29 @@ function updateUI() {
   document.getElementById('crystal-rate').textContent = '+'+fmt(prod.crystal)+t('perTurn');
   document.getElementById('energy-rate').textContent = '+'+fmt(prod.energy)+t('perTurn');
   document.getElementById('turn-display').textContent = (lang==='fr'?'Tour ':'Turn ')+G.turn;
-  document.getElementById('planet-name-display').textContent = G.planetName;
+  document.getElementById('planet-name-display').textContent = G.planets[0].name;
 
   // Nav labels
   document.querySelectorAll('[data-tkey]').forEach(el => { el.textContent = t(el.dataset.tkey); });
 
-  // Overview stats
+  // Overview stats — utilise la planète active pour les stats
+  const ap = AP();
   const els = {
     'stat-metal-rate': '+'+fmt(prod.metal),
     'stat-crystal-rate': '+'+fmt(prod.crystal),
     'stat-energy-rate': '+'+fmt(prod.energy),
-    'stat-shields': G.defense.shields,
-    'stat-cannons': G.defense.cannons,
-    'stat-rockets': G.defense.rockets,
-    'stat-fighters': G.fleet.fighter,
-    'stat-cruisers': G.fleet.cruiser,
-    'stat-battleships': G.fleet.battleship,
-    'stat-mine-metal': G.buildings.mine_metal,
-    'stat-mine-crystal': G.buildings.mine_crystal,
-    'stat-power': G.buildings.power_plant,
-    'planet-name-big': G.planetName,
-    'planet-emoji': G.planetEmoji,
-    'planet-coords': t('planetCoords')+' '+G.sector,
+    'stat-shields': (ap.defense||{}).shields||0,
+    'stat-cannons': (ap.defense||{}).cannons||0,
+    'stat-rockets': (ap.defense||{}).rockets||0,
+    'stat-fighters': (ap.fleet||{}).fighter||0,
+    'stat-cruisers': (ap.fleet||{}).cruiser||0,
+    'stat-battleships': (ap.fleet||{}).battleship||0,
+    'stat-mine-metal': (ap.buildings||{}).mine_metal||0,
+    'stat-mine-crystal': (ap.buildings||{}).mine_crystal||0,
+    'stat-power': (ap.buildings||{}).power_plant||0,
+    'planet-name-big': ap.name,
+    'planet-emoji': ap.emoji,
+    'planet-coords': t('planetCoords')+' '+ap.sector,
     'commander-name-display': G.commanderName,
   };
   Object.entries(els).forEach(([id,val]) => { const el=document.getElementById(id); if(el) el.textContent=val; });
@@ -738,9 +852,10 @@ function updateUI() {
   // Build queue
   const qEl = document.getElementById('build-queue-display');
   if (qEl) {
-    qEl.innerHTML = G.buildQueue.length === 0
+    const currentQueue = AP().buildQueue||[];
+    qEl.innerHTML = currentQueue.length === 0
       ? `<div class="queue-empty">${t('noQueue')}</div>`
-      : G.buildQueue.map(i=>`<div class="queue-item"><div class="queue-dot"></div><span>${i.name}${i.qty?' x'+i.qty:''}</span></div>`).join('');
+      : currentQueue.map(i=>`<div class="queue-item"><div class="queue-dot"></div><span>${i.name}${i.qty?' x'+i.qty:''}</span></div>`).join('');
   }
 
   // Active missions
@@ -771,11 +886,14 @@ function renderBuildings() {
   const grid = document.getElementById('buildings-grid');
   if (!grid) return;
   grid.innerHTML = '';
+  // Sélecteur de planète
+  grid.innerHTML += renderPlanetSelector('buildings');
+  const planet = AP();
   BUILDINGS.forEach(b => {
-    const lv = G.buildings[b.id];
+    const lv = (planet.buildings||{})[b.id]||0;
     const cost = getBuildingCost(b, lv);
     const afford = canAfford(cost);
-    const inQueue = G.buildQueue.some(q=>q.id===b.id);
+    const inQueue = (planet.buildQueue||[]).some(q=>q.id===b.id);
     const bonusText = b.production ? `+${b.prodBase*(lv+1)} ${t(b.production)}${t('perTurn')} (${lang==='fr'?'nv':'lv'}.${lv+1})` : '';
 
     grid.innerHTML += `<div class="card">
@@ -807,7 +925,7 @@ function renderResearch() {
     const cost = getResearchCost(r);
     const afford = canAfford(cost);
     const meetsR = meetsReqs(r.requires);
-    const inQueue = G.buildQueue.some(q=>q.id===r.id);
+    const inQueue = (AP().buildQueue||[]).some(q=>q.id===r.id);
     const maxed = lv >= 5;
     let reqText = '';
     if (r.requires && !meetsR) {
@@ -841,6 +959,9 @@ function renderFleet() {
   const grid = document.getElementById('fleet-grid');
   if (!grid) return;
   grid.innerHTML = '';
+  // Sélecteur de planète
+  grid.innerHTML += renderPlanetSelector('fleet');
+  const planet = AP();
   SHIPS.forEach(s => {
     const meetsR = meetsReqs(s.requires);
     const afford = canAfford(s.cost);
@@ -857,7 +978,7 @@ function renderFleet() {
       <div class="card-header">
         <span class="card-icon">${s.icon}</span>
         <div><div class="card-title">${getSName(s)}</div></div>
-        <div class="card-level" style="color:var(--accent3)">${G.fleet[s.id]||0}✈</div>
+        <div class="card-level" style="color:var(--accent3)">${(planet.fleet||{})[s.id]||0}✈</div>
       </div>
       <div class="card-desc">${lang==='fr'?s.descFr:s.descEn}</div>
       <div class="card-bonus">⚔️ ${t('attack')}: ${Math.floor(s.att*wB)} | 🛡️ ${t('defense')}: ${Math.floor(s.def*sB)}</div>
@@ -886,7 +1007,7 @@ function renderFleet() {
     const sB = 1+G.research['shields']*0.25;
     tbody.innerHTML = SHIPS.map(s=>`<tr>
       <td>${s.icon} ${getSName(s)}</td>
-      <td style="font-family:'Orbitron',monospace;color:var(--accent)">${G.fleet[s.id]||0}</td>
+      <td style="font-family:'Orbitron',monospace;color:var(--accent)">${(planet.fleet||{})[s.id]||0}</td>
       <td style="color:var(--accent2)">${Math.floor(s.att*wB)}</td>
       <td style="color:var(--crystal)">${Math.floor(s.def*sB)}</td>
     </tr>`).join('');
@@ -897,7 +1018,7 @@ function renderMissions() {
   const grid = document.getElementById('missions-grid');
   if (!grid) return;
   grid.innerHTML = '';
-  const totalFleet = Object.values(G.fleet).reduce((a,b)=>a+b,0);
+  const totalFleet = G.planets.reduce((sum, p) => sum + Object.values(p.fleet||{}).reduce((a,b)=>a+b,0), 0);
   const power = totalFleetPower();
   MISSIONS.forEach(m => {
     const hasFleet = totalFleet >= m.minShips;
@@ -973,14 +1094,100 @@ function renderLog() {
     </div>`).join('');
 }
 
+// ===== SÉLECTEUR DE PLANÈTE =====
+function renderPlanetSelector(pageId) {
+  if (!G || !G.planets) return '';
+  const tabs = G.planets.map((p, i) => {
+    const isActive = i === activePlanetIndex;
+    const label = i === 0 ? (lang==='fr'?'Planète principale':'Main Planet') : `${lang==='fr'?'Colonie':'Colony'} ${i}`;
+    return `<button onclick="window._selectPlanet(${i}, '${pageId}')"
+      style="padding:6px 16px;background:${isActive?'rgba(0,200,255,.15)':'var(--panel2)'};
+      border:1px solid ${isActive?'var(--accent)':'var(--border)'};
+      color:${isActive?'var(--accent)':'var(--text2)'};
+      font-family:'Rajdhani',sans-serif;font-size:.85rem;font-weight:700;letter-spacing:1px;
+      cursor:pointer;border-radius:2px;transition:all .2s;">
+      ${p.emoji} ${p.name}
+      <span style="font-size:.7rem;color:${isActive?'var(--accent)':'var(--text2)'}"> — ${label}</span>
+    </button>`;
+  }).join('');
+  return `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;padding:14px;background:var(--panel);border:1px solid var(--border);border-radius:4px;align-items:center;">
+    <span style="font-size:.75rem;color:var(--text2);letter-spacing:1px;margin-right:4px">${t('selectPlanet')}</span>
+    ${tabs}
+  </div>`;
+}
+
+window._selectPlanet = (idx, pageId) => {
+  activePlanetIndex = idx;
+  if (pageId === 'buildings') renderBuildings();
+  else if (pageId === 'fleet') renderFleet();
+  updateUI();
+};
+
+// ===== COLONISATION =====
+// Génère des planètes vides dans la galaxie (basé sur des secteurs non occupés)
+function generateEmptyPlanets(occupiedSectors) {
+  const allSectors = Array.from({length:20}, (_,i)=>i+1);
+  const free = allSectors.filter(s => !occupiedSectors.includes(s));
+  // On prend 5 planètes vides max au hasard parmi les secteurs libres
+  const shuffled = free.sort(()=>Math.random()-.5).slice(0,5);
+  const planetNames = ['Kepler-7b','Orion Nexus','Proxima Drift','Vega Station','Nebula-4','Cygnus Prime','Arcturus II','Tau Ceti V','Rigel Outpost','Sigma-9'];
+  const emojis = ['🪐','🌑','🟤','🔵','🔴','🌕'];
+  return shuffled.map((sector, i) => ({
+    name: planetNames[i % planetNames.length],
+    emoji: emojis[Math.floor(Math.random()*emojis.length)],
+    sector,
+    isEmpty: true,
+  }));
+}
+
+window._openColonizeModal = (planetName, sector, emoji) => {
+  if (!G) return;
+  if (G.planets.length >= 3) { notify(t('colonizeMax'), true); return; }
+  if (G.pendingColonization) { notify(t('colonizeAlready'), true); return; }
+  // Vérifie si on a un colonisateur dispo sur n'importe quelle planète
+  const hasColonizer = G.planets.some(p => (p.fleet||{}).colonizer > 0);
+  if (!hasColonizer) { notify(t('colonizeNoShip'), true); return; }
+
+  window._colonizeTarget = { planetName, sector, emoji };
+
+  const modal = document.getElementById('colonize-modal');
+  document.getElementById('colonize-modal-title').textContent = `${emoji} ${planetName}`;
+  document.getElementById('colonize-modal-sector').textContent = `${lang==='fr'?'Secteur':'Sector'} ${sector}`;
+  modal.style.display = 'flex';
+};
+
+window._closeColonizeModal = () => {
+  document.getElementById('colonize-modal').style.display = 'none';
+};
+
+window._confirmColonize = async () => {
+  if (!window._colonizeTarget) return;
+  if (G.planets.length >= 3) { notify(t('colonizeMax'), true); return; }
+  if (G.pendingColonization) { notify(t('colonizeAlready'), true); return; }
+  
+  // Retire un colonisateur de la première planète qui en a un
+  const sourcePlanet = G.planets.find(p => (p.fleet||{}).colonizer > 0);
+  if (!sourcePlanet) { notify(t('colonizeNoShip'), true); return; }
+  sourcePlanet.fleet.colonizer--;
+  
+  G.pendingColonization = { ...window._colonizeTarget };
+  addLog(`🚀 ${lang==='fr'?'Colonisateur envoyé vers':'Colonizer sent to'} ${window._colonizeTarget.planetName}`, 'info');
+  await saveGame();
+  window._closeColonizeModal();
+  notify(t('colonizeLaunched'));
+};
+
 // ========== ACTIONS (exposed globally) ==========
 window._queueBuilding = async (id) => {
+  const planet = AP();
   const b = BUILDINGS.find(x=>x.id===id);
-  const cost = getBuildingCost(b, G.buildings[id]);
+  const lv = (planet.buildings||{})[id]||0;
+  const cost = getBuildingCost(b, lv);
   if (!canAfford(cost)) { notify(t('insufficientRes'), true); return; }
-  if (G.buildQueue.some(q=>q.id===id)) { notify(t('alreadyQueued'), true); return; }
+  if ((planet.buildQueue||[]).some(q=>q.id===id)) { notify(t('alreadyQueued'), true); return; }
   spend(cost);
-  G.buildQueue.push({ type:'building', id, name:`${getBName(b)} ${t('level')}${G.buildings[id]+1}` });
+  if (!planet.buildQueue) planet.buildQueue = [];
+  planet.buildQueue.push({ type:'building', id, name:`${getBName(b)} ${t('level')}${lv+1}` });
   await saveGame(); updateUI(); renderBuildings();
   notify(`${getBName(b)} ${t('buildQueued')}`);
 };
@@ -990,21 +1197,25 @@ window._queueResearch = async (id) => {
   const cost = getResearchCost(r);
   if (!canAfford(cost)) { notify(t('insufficientRes'), true); return; }
   if (!meetsReqs(r.requires)) { notify(t('prereqNotMet'), true); return; }
-  if (G.buildQueue.some(q=>q.id===id)) { notify(t('alreadyQueued'), true); return; }
+  const rPlanet = AP();
+  if ((rPlanet.buildQueue||[]).some(q=>q.id===id)) { notify(t('alreadyQueued'), true); return; }
   spend(cost);
-  G.buildQueue.push({ type:'research', id, name:getRName(r) });
+  if (!rPlanet.buildQueue) rPlanet.buildQueue = [];
+  rPlanet.buildQueue.push({ type:'research', id, name:getRName(r) });
   await saveGame(); updateUI(); renderResearch();
   notify(t('researchQueued'));
 };
 
 window._queueShip = async (id) => {
+  const planet = AP();
   const s = SHIPS.find(x=>x.id===id);
   const qty = parseInt(document.getElementById('qty-'+id)?.value)||1;
   const cost = { metal:s.cost.metal*qty, crystal:s.cost.crystal*qty, energy:s.cost.energy*qty };
   if (!canAfford(cost)) { notify(t('insufficientRes'), true); return; }
   if (!meetsReqs(s.requires)) { notify(t('prereqNotMet'), true); return; }
   spend(cost);
-  G.buildQueue.push({ type:'ship', id, name:getSName(s), qty });
+  if (!planet.buildQueue) planet.buildQueue = [];
+  planet.buildQueue.push({ type:'ship', id, name:getSName(s), qty });
   await saveGame(); updateUI(); renderFleet();
   notify(`${qty}x ${getSName(s)} ${t('shipQueued')}`);
 };
@@ -1519,6 +1730,10 @@ window._notify = notify;
   function _queueShip(id) { if(window._queueShip) window._queueShip(id); else setTimeout(()=>_queueShip(id), 100); }
   function _launchMission(id,name) { if(window._launchMission) window._launchMission(id,name); else setTimeout(()=>_launchMission(id,name), 100); }
   function _openAttackModal(uid,name,planet) { if(window._openAttackModal) window._openAttackModal(uid,name,planet); else setTimeout(()=>_openAttackModal(uid,name,planet), 100); }
+  function _openColonizeModal(n,s,e) { if(window._openColonizeModal) window._openColonizeModal(n,s,e); else setTimeout(()=>_openColonizeModal(n,s,e), 100); }
+  function _confirmColonize() { if(window._confirmColonize) window._confirmColonize(); else setTimeout(_confirmColonize, 100); }
+  function _closeColonizeModal() { if(window._closeColonizeModal) window._closeColonizeModal(); else setTimeout(_closeColonizeModal, 100); }
+  function _selectPlanet(i,p) { if(window._selectPlanet) window._selectPlanet(i,p); else setTimeout(()=>_selectPlanet(i,p), 100); }
 </script>
 <script>
   // Fix auth screen lang button
@@ -1532,6 +1747,26 @@ window._notify = notify;
     document.getElementById('login-pass').placeholder='Password';
   }
 </script>
+<!-- COLONIZE MODAL -->
+<div id="colonize-modal" style="display:none;position:fixed;inset:0;z-index:300;align-items:center;justify-content:center;background:rgba(0,0,0,.75)">
+  <div style="background:var(--panel2);border:1px solid rgba(127,255,107,.3);border-radius:6px;padding:32px;width:440px;max-width:95vw;box-shadow:0 0 40px rgba(127,255,107,.15)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <div id="colonize-modal-title" style="font-family:'Orbitron',monospace;font-size:.85rem;color:var(--accent3);letter-spacing:2px;text-transform:uppercase">Coloniser</div>
+      <button onclick="window._closeColonizeModal()" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:1.2rem">✕</button>
+    </div>
+    <div id="colonize-modal-sector" style="font-size:.8rem;color:var(--text2);margin-bottom:20px"></div>
+    <div style="background:rgba(127,255,107,.05);border:1px solid rgba(127,255,107,.2);border-radius:4px;padding:16px;margin-bottom:20px;font-size:.9rem;color:var(--text2);line-height:1.6">
+      🚀 Un vaisseau colonisateur sera envoyé depuis votre planète principale.<br>
+      🌍 La planète vous appartiendra au prochain tour.<br>
+      ⚠️ Un seul colonisateur sera consommé.
+    </div>
+    <div style="display:flex;gap:10px">
+      <button class="btn" style="border-color:var(--border);color:var(--text2)" onclick="window._closeColonizeModal()">ANNULER</button>
+      <button class="btn" style="border-color:var(--accent3);color:var(--accent3);background:rgba(127,255,107,.08)" onclick="window._confirmColonize()">🚀 ENVOYER LE COLONISATEUR</button>
+    </div>
+  </div>
+</div>
+
 <!-- ATTACK MODAL -->
 <div id="attack-modal" style="display:none;position:fixed;inset:0;z-index:300;align-items:center;justify-content:center;background:rgba(0,0,0,.75)">
   <div style="background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:32px;width:480px;max-width:95vw;box-shadow:0 0 40px rgba(255,107,53,.2)">
