@@ -433,8 +433,7 @@ async function loadGame() {
     const snap = await getDoc(doc(db, 'players', currentUser.uid));
     if (snap.exists()) {
       G = snap.data();
-      // Migration : ancien format (1 planète) → nouveau format (tableau planets[])
-      if (!G.planets) {
+      // Migration : ancien format (1 planète) → nouveau format (tableau planets[])\n      if (!G.planets) {
         G.planets = [{
           name: G.planetName || 'Nexara Prime',
           emoji: G.planetEmoji || '🪐',
@@ -449,6 +448,11 @@ async function loadGame() {
         }];
         G.pendingColonization = G.pendingColonization || null;
         // On garde les anciens champs pour l'instant mais on sauve le nouveau format
+        await saveGame();
+      }
+      // Migration : ajouter colonization si absent (anciens comptes)
+      if (G.research && G.research.colonization === undefined) {
+        G.research.colonization = 0;
         await saveGame();
       }
       activePlanetIndex = 0;
@@ -497,7 +501,7 @@ function createNewGame(planetName, commanderName) {
     turn: 1,
     nextTurnTime: nextMidnight(),
     resources: { metal: 3000, crystal: 1000, energy: 200 },
-    research: { combustion:0, weapons:0, shields:0, espionage:0, hyperdrive:0 },
+    research: { combustion:0, weapons:0, shields:0, espionage:0, hyperdrive:0, colonization:0 },
     planets: [ {
       ...makePlanet(planetName, null, null, true),
       hexCol,
@@ -596,6 +600,7 @@ async function processTurn() {
   if (now < G.nextTurnTime) return;
   if (_processingTurn) return;
   _processingTurn = true;
+  try {
   const prod = getProduction();
   G.resources.metal += prod.metal;
   G.resources.crystal += prod.crystal;
@@ -648,9 +653,14 @@ async function processTurn() {
   G.lastSeen = Date.now();
   addLog(`🌅 ${lang==='fr'?'Tour':'Turn'} ${G.turn} — +${prod.metal}🪨 +${prod.crystal}💎 +${prod.energy}⚡`, 'info');
   await saveGame();
-  _processingTurn = false;
   notify(t('turnStarted'));
   updateUI();
+  } catch(e) {
+    console.error('processTurn error:', e);
+    notify(lang==='fr'?'Erreur lors du traitement du tour.':'Error processing turn.', true);
+  } finally {
+    _processingTurn = false;
+  }
 }
 
 function processMissionResult(m) {
