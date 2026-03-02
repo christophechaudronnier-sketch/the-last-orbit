@@ -433,7 +433,8 @@ async function loadGame() {
     const snap = await getDoc(doc(db, 'players', currentUser.uid));
     if (snap.exists()) {
       G = snap.data();
-      // Migration : ancien format (1 planète) → nouveau format (tableau planets[])\n      if (!G.planets) {
+      // Migration : ancien format (1 planète) → nouveau format (tableau planets[])
+      if (!G.planets) {
         G.planets = [{
           name: G.planetName || 'Nexara Prime',
           emoji: G.planetEmoji || '🪐',
