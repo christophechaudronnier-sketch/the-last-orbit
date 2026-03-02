@@ -1934,6 +1934,8 @@ async function loadTrades() {
   } catch(e) { return []; }
 }
 
+window._setMarketTab = (tab) => { window._marketTab = tab; renderMarket(); };
+
 async function renderMarket() {
   const el = document.getElementById('market-content');
   if (!el) return;
@@ -1956,7 +1958,7 @@ async function renderMarket() {
   let html = `
     <div style="display:flex;gap:0;margin-bottom:20px;border-bottom:1px solid var(--border)">
       ${['public','private','merchant'].map(tab => `
-        <button onclick="window._marketTab='${tab}';renderMarket()" style="
+        <button onclick="window._setMarketTab('${tab}')" style="
           padding:10px 18px;background:${activeTab===tab?'rgba(0,200,255,.1)':'transparent'};
           border:none;border-bottom:2px solid ${activeTab===tab?'var(--accent)':'transparent'};
           color:${activeTab===tab?'var(--accent)':'var(--text2)'};
