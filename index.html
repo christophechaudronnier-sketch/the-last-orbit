@@ -382,7 +382,6 @@ const BUILDINGS = [
   { id: 'mine_crystal', nameKey: 'mineCrystal', icon: '💠', descFr: "Extrait des cristaux rares essentiels à la technologie.", descEn: "Extracts rare crystals essential to technology.", costBase: {metal:48,crystal:24,energy:0}, production:'crystal', prodBase:12 },
   { id: 'power_plant', nameKey: 'powerPlant', icon: '🔋', descFr: "Génère de l'énergie pour vos installations.", descEn: "Generates energy to power your facilities.", costBase: {metal:75,crystal:30,energy:0}, production:'energy', prodBase:25 },
   { id: 'shipyard', nameKey: null, icon: '🛸', nameFr:'Chantier Naval', nameEn:'Shipyard', descFr: "Permet la construction de vaisseaux spatiaux.", descEn: "Enables construction of spacecraft.", costBase: {metal:200,crystal:100,energy:30}, production:null },
-  { id: 'defense_turret', nameKey: null, icon: '🔫', nameFr:'Tourelle Laser', nameEn:'Laser Turret', descFr: "Défense planétaire automatique.", descEn: "Automatic planetary defense.", costBase: {metal:150,crystal:50,energy:20}, production:null },
   { id: 'research_lab', nameKey: null, icon: '🔭', nameFr:'Laboratoire', nameEn:'Research Lab', descFr: "Débloque et accélère les recherches.", descEn: "Unlocks and accelerates research.", costBase: {metal:200,crystal:400,energy:40}, production:null },
   { id: 'spaceport', nameKey: null, icon: '🏪', nameFr:'Port Spatial', nameEn:'Space Port', descFr: "Permet de poster des offres sur le marché galactique. Chaque niveau débloque un slot d'offre supplémentaire.", descEn: "Allows posting offers on the galactic market. Each level unlocks an additional offer slot.", costBase: {metal:300,crystal:500,energy:60}, production:null, maxLevel:3 },
 ];
@@ -401,6 +400,52 @@ const SHIPS = [
   { id:'cruiser', icon:'🔸', nameFr:'Croiseur', nameEn:'Cruiser', descFr:"Solide et puissant.", descEn:"Solid and powerful.", cost:{metal:5000,crystal:1800,energy:500}, att:350, def:200, requires:{shipyard:2,combustion:1} },
   { id:'battleship', icon:'🔶', nameFr:'Cuirassé', nameEn:'Battleship', descFr:"Le plus puissant de votre flotte.", descEn:"The most powerful in your fleet.", cost:{metal:12000,crystal:4000,energy:0}, att:1000, def:500, requires:{shipyard:3,hyperdrive:1} },
   { id:'colonizer', icon:'📦', nameFr:'Vaisseau Colonisateur', nameEn:'Colonizer Ship', descFr:"Permet de coloniser une planète vide. Consommé lors de la colonisation.", descEn:"Allows colonizing an empty planet. Consumed upon colonization.", cost:{metal:2500,crystal:5000,energy:250}, att:5, def:10, requires:{shipyard:2} },
+];
+
+
+const DEFENSES = [
+  {
+    id: 'shields',
+    icon: '🛡️',
+    nameFr: 'Bouclier Planétaire',
+    nameEn: 'Planetary Shield',
+    descFr: "Absorbe une partie des dégâts ennemis. Essentiel pour protéger votre planète.",
+    descEn: "Absorbs part of enemy damage. Essential to protect your planet.",
+    cost: { metal: 200, crystal: 100, energy: 20 },
+    def: 50,
+    absorption: 0.10,
+    bonusFr: "Défense +50 · Absorption 10% des dégâts",
+    bonusEn: "Defense +50 · Absorbs 10% of damage",
+    requires: null,
+  },
+  {
+    id: 'cannons',
+    icon: '🔫',
+    nameFr: 'Canon Laser',
+    nameEn: 'Laser Cannon',
+    descFr: "Riposte automatique contre les flottes ennemies avec des tirs laser précis.",
+    descEn: "Automatically counter-fires against enemy fleets with precise laser shots.",
+    cost: { metal: 400, crystal: 150, energy: 40 },
+    def: 80,
+    absorption: 0.05,
+    bonusFr: "Défense +80 · Absorption 5% des dégâts",
+    bonusEn: "Defense +80 · Absorbs 5% of damage",
+    requires: { shipyard: 1 },
+  },
+  {
+    id: 'rockets',
+    icon: '💥',
+    nameFr: 'Lance-Roquettes',
+    nameEn: 'Rocket Launcher',
+    descFr: "Missiles à longue portée infligeant de lourds dégâts. Fragile mais dévastateur.",
+    descEn: "Long-range missiles dealing heavy damage. Fragile but devastating.",
+    cost: { metal: 300, crystal: 400, energy: 0 },
+    def: 120,
+    absorption: 0.02,
+    bonusFr: "Défense +120 · Absorption 2% des dégâts (fragile)",
+    bonusEn: "Defense +120 · Absorbs 2% of damage (fragile)",
+    requires: { research_lab: 1 },
+  },
 ];
 
 const MISSIONS = [
@@ -442,7 +487,7 @@ async function loadGame() {
           hexCol: G.hexCol !== undefined ? G.hexCol : Math.floor(Math.random()*9),
           hexRow: G.hexRow !== undefined ? G.hexRow : Math.floor(Math.random()*9),
           isMain: true,
-          buildings: G.buildings || { mine_metal:0, mine_crystal:0, power_plant:0, shipyard:0, defense_turret:0, research_lab:0 },
+          buildings: G.buildings || { mine_metal:0, mine_crystal:0, power_plant:0, shipyard:0, research_lab:0 },
           fleet: G.fleet || { fighter:0, cruiser:0, battleship:0, colonizer:0 },
           defense: G.defense || { shields:0, cannons:0, rockets:0 },
           buildQueue: G.buildQueue || [],
@@ -482,7 +527,7 @@ function makePlanet(name, emoji, sector, isMain=true) {
     hexCol: null,
     hexRow: null,
     isMain,
-    buildings: { mine_metal:0, mine_crystal:0, power_plant:0, shipyard:0, defense_turret:0, research_lab:0, spaceport:0 },
+    buildings: { mine_metal:0, mine_crystal:0, power_plant:0, shipyard:0, research_lab:0, spaceport:0 },
     fleet: { fighter:0, cruiser:0, battleship:0, colonizer:0 },
     defense: { shields:0, cannons:0, rockets:0 },
     buildQueue: [],
@@ -582,9 +627,7 @@ function totalFleetPower() {
     def += (fl.fighter||0) * 20 * sB;
     def += (fl.cruiser||0) * 100 * sB;
     def += (fl.battleship||0) * 500 * sB;
-    def += (df.cannons||0) * 30;
-    def += (df.rockets||0) * 60;
-    def += (df.shields||0) * 50;
+    DEFENSES.forEach(d => { def += (df[d.id]||0) * d.def; });
   });
   return { att: Math.floor(att), def: Math.floor(def) };
 }
@@ -620,6 +663,11 @@ async function processTurn() {
         addLog(`✅ ${item.name} ${t('level')}${G.research[item.id]}`, 'info');
       } else if (item.type === 'ship') {
         planet.fleet[item.id] = (planet.fleet[item.id]||0) + item.qty;
+        const planetLabel = idx===0 ? '' : ` (${planet.name})`;
+        addLog(`✅ ${item.qty}x ${item.name}${planetLabel}`, 'info');
+      } else if (item.type === 'defense') {
+        if (!planet.defense) planet.defense = {};
+        planet.defense[item.id] = (planet.defense[item.id]||0) + item.qty;
         const planetLabel = idx===0 ? '' : ` (${planet.name})`;
         addLog(`✅ ${item.qty}x ${item.name}${planetLabel}`, 'info');
       }
@@ -733,9 +781,9 @@ function calcPlayerDefensePower(playerData) {
       def += (fleet.fighter||0)    * 20  * sB;
       def += (fleet.cruiser||0)    * 100 * sB;
       def += (fleet.battleship||0) * 500 * sB;
-      def += (defense.cannons||0) * 30;
-      def += (defense.rockets||0) * 60;
-      def += (defense.shields||0) * 50;
+      DEFENSES.forEach(d => {
+        def += (defense[d.id]||0) * d.def;
+      });
     });
   } else {
     // Ancien format (compatibilité rétro)
@@ -743,9 +791,9 @@ function calcPlayerDefensePower(playerData) {
     def += (fleet.fighter||0)    * 20  * sB;
     def += (fleet.cruiser||0)    * 100 * sB;
     def += (fleet.battleship||0) * 500 * sB;
-    def += (playerData.defense?.cannons||0) * 30;
-    def += (playerData.defense?.rockets||0) * 60;
-    def += (playerData.defense?.shields||0) * 50;
+    DEFENSES.forEach(d => {
+      def += (playerData.defense?.[d.id]||0) * d.def;
+    });
   }
   return Math.floor(def);
 }
@@ -779,6 +827,14 @@ function resolveCombat(attackerFleet, attackerResearch, defenderData) {
   for (const [type, qty] of Object.entries(defFleet)) {
     defLosses[type] = Math.floor(qty * defLossRate);
   }
+  // Si victoire : toutes les défenses planétaires détruites
+  const defLosesDefenses = {};
+  if (victory) {
+    const mainDef = (defenderData.planets && defenderData.planets[0]) ? defenderData.planets[0].defense : defenderData.defense;
+    if (mainDef) {
+      DEFENSES.forEach(d => { if ((mainDef[d.id]||0) > 0) defLosesDefenses[d.id] = mainDef[d.id]; });
+    }
+  }
 
   // Butin : 20% des stocks si victoire
   const loot = { metal: 0, crystal: 0 };
@@ -787,7 +843,7 @@ function resolveCombat(attackerFleet, attackerResearch, defenderData) {
     loot.crystal = Math.floor((defenderData.resources?.crystal||0) * 0.20);
   }
 
-  return { victory, atkPower: Math.floor(atkRoll), defPower: Math.floor(defRoll), atkLosses, defLosses, loot };
+  return { victory, atkPower: Math.floor(atkRoll), defPower: Math.floor(defRoll), atkLosses, defLosses, defLosesDefenses, loot };
 }
 
 // Traite toutes les attaques au passage de tour
@@ -808,6 +864,12 @@ async function processIncomingAttacks() {
       for (const [type, lost] of Object.entries(report.defLosses)) {
         if (mainPlanet.fleet[type] !== undefined) mainPlanet.fleet[type] = Math.max(0, mainPlanet.fleet[type] - lost);
       }
+      if (report.defLosesDefenses) {
+        for (const [type, lost] of Object.entries(report.defLosesDefenses)) {
+          if (!mainPlanet.defense) mainPlanet.defense = {};
+          mainPlanet.defense[type] = Math.max(0, (mainPlanet.defense[type]||0) - lost);
+        }
+      }
       if (report.victory) {
         G.resources.metal   = Math.max(0, G.resources.metal   - report.loot.metal);
         G.resources.crystal = Math.max(0, G.resources.crystal - report.loot.crystal);
@@ -816,7 +878,7 @@ async function processIncomingAttacks() {
       const fmtLocal = (n) => n >= 1000 ? (n/1000).toFixed(1)+'k' : String(n);
       const outcomeLabel = report.victory ? (lang==='fr'?'🔴 DÉFAITE':'🔴 DEFEAT') : (lang==='fr'?'🟢 REPOUSSÉ':'🟢 REPELLED');
       const lootMsg = report.victory ? ` — −${fmtLocal(report.loot.metal)}🪨 −${fmtLocal(report.loot.crystal)}💎` : '';
-      const defLossMsg = Object.entries(report.defLosses).filter(([,v])=>v>0).map(([k,v])=>`-${v} ${k}`).join(' ');
+      const defLossMsg = [...Object.entries(report.defLosses), ...Object.entries(report.defLosesDefenses||{})].filter(([,v])=>v>0).map(([k,v])=>`-${v} ${k}`).join(' ');
       addLog(`${outcomeLabel} — ${atk.attackerName} (${atk.attackerPlanet}) ⚔️${fmtLocal(report.atkPower)} vs 🛡️${fmtLocal(report.defPower)}${lootMsg}${defLossMsg?' | pertes: '+defLossMsg:''}`, report.victory ? 'defeat' : 'victory');
 
       await updateDoc(doc(db, 'attacks', attackSnap.id), {
@@ -1230,6 +1292,7 @@ function showPage(id) {
 function renderPage(id) {
   if (id==='buildings') renderBuildings();
   else if (id==='research') renderResearch();
+  else if (id==='defense') renderDefense();
   else if (id==='fleet') renderFleet();
   else if (id==='missions') renderMissions();
   else if (id==='log') renderLog();
@@ -1437,6 +1500,61 @@ function renderFleet() {
       <td style="font-family:'Orbitron',monospace;color:var(--accent)">${(planet.fleet||{})[s.id]||0}</td>
       <td style="color:var(--accent2)">${Math.floor(s.att*wB)}</td>
       <td style="color:var(--crystal)">${Math.floor(s.def*sB)}</td>
+    </tr>`).join('');
+  }
+}
+
+function renderDefense() {
+  const grid = document.getElementById('defense-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  grid.innerHTML += renderPlanetSelector('defense');
+  const planet = AP();
+  const sB = 1 + (G.research['shields']||0) * 0.25;
+  DEFENSES.forEach(d => {
+    const meetsR = meetsReqs(d.requires);
+    const afford = canAfford(d.cost);
+    const qty = (planet.defense||{})[d.id]||0;
+    let reqText = '';
+    if (d.requires && !meetsR) {
+      reqText = Object.entries(d.requires).map(([k,v])=>{
+        const bn = BUILDINGS.find(b=>b.id===k); const rn = RESEARCH.find(r=>r.id===k);
+        return `${bn?getBName(bn):rn?getRName(rn):k} ${t('level')}${v}`;
+      }).join(', ');
+    }
+    const defVal = Math.floor(d.def * sB);
+    grid.innerHTML += `<div class="card ${!meetsR?'tech-locked':''}">
+      <div class="card-header">
+        <span class="card-icon">${d.icon}</span>
+        <div><div class="card-title">${lang==='fr'?d.nameFr:d.nameEn}</div></div>
+        <div class="card-level" style="color:var(--crystal)">${qty} ×</div>
+      </div>
+      <div class="card-desc">${lang==='fr'?d.descFr:d.descEn}</div>
+      <div class="card-bonus">🛡️ ${lang==='fr'?d.bonusFr:d.bonusEn} (total : ${Math.floor(defVal*qty)})</div>
+      ${!meetsR?`<div style="font-size:.8rem;color:var(--danger);margin-bottom:10px">🔒 ${t('requires')} : ${reqText}</div>`:''}
+      <div class="card-cost">
+        ${d.cost.metal?`<span class="cost-item metal ${G.resources.metal<d.cost.metal?'cant-afford':''}">🪨 ${fmt(d.cost.metal)}</span>`:''}
+        ${d.cost.crystal?`<span class="cost-item crystal ${G.resources.crystal<d.cost.crystal?'cant-afford':''}">💎 ${fmt(d.cost.crystal)}</span>`:''}
+        ${d.cost.energy?`<span class="cost-item energy ${G.resources.energy<d.cost.energy?'cant-afford':''}">⚡ ${fmt(d.cost.energy)}</span>`:''}
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <button onclick="document.getElementById('def-qty-${d.id}').value=Math.max(1,+document.getElementById('def-qty-${d.id}').value-1)" style="background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:4px 10px;cursor:pointer;border-radius:2px">−</button>
+        <input id="def-qty-${d.id}" type="number" min="1" value="1" style="width:60px;text-align:center;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px;border-radius:2px;font-family:'Orbitron',monospace;font-size:.9rem">
+        <button onclick="document.getElementById('def-qty-${d.id}').value=+document.getElementById('def-qty-${d.id}').value+1" style="background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:4px 10px;cursor:pointer;border-radius:2px">+</button>
+        <span style="font-size:.8rem;color:var(--text2)">${t('qty')}</span>
+      </div>
+      <button class="btn" style="border-color:var(--crystal);color:var(--crystal)" onclick="window._queueDefense('${d.id}')" ${(!afford||!meetsR)?'disabled':''}>
+        ${!meetsR?t('locked'):t('order')}
+      </button>
+    </div>`;
+  });
+  const tbody = document.getElementById('defense-table-body');
+  if (tbody) {
+    tbody.innerHTML = DEFENSES.map(d=>`<tr>
+      <td>${d.icon} ${lang==='fr'?d.nameFr:d.nameEn}</td>
+      <td style="font-family:'Orbitron',monospace;color:var(--accent)">${(planet.defense||{})[d.id]||0}</td>
+      <td style="color:var(--crystal)">${Math.floor(d.def * sB)}</td>
+      <td style="color:var(--accent3)">${Math.round(d.absorption*100)}%</td>
     </tr>`).join('');
   }
 }
@@ -1785,6 +1903,7 @@ function renderPlanetSelector(pageId) {
 window._selectPlanet = (idx, pageId) => {
   activePlanetIndex = idx;
   if (pageId === 'buildings') renderBuildings();
+  else if (pageId === 'defense') renderDefense();
   else if (pageId === 'fleet') renderFleet();
   updateUI();
 };
@@ -1893,6 +2012,21 @@ window._queueShip = async (id) => {
   planet.buildQueue.push({ type:'ship', id, name:getSName(s), qty });
   await saveGame(); updateUI(); renderFleet();
   notify(`${qty}x ${getSName(s)} ${t('shipQueued')}`);
+};
+
+window._queueDefense = async (id) => {
+  const planet = AP();
+  const d = DEFENSES.find(x=>x.id===id);
+  const qty = parseInt(document.getElementById('def-qty-'+id)?.value)||1;
+  const cost = { metal:d.cost.metal*qty, crystal:d.cost.crystal*qty, energy:(d.cost.energy||0)*qty };
+  if (!canAfford(cost)) { notify(t('insufficientRes'), true); return; }
+  if (!meetsReqs(d.requires)) { notify(t('prereqNotMet'), true); return; }
+  spend(cost);
+  if (!planet.buildQueue) planet.buildQueue = [];
+  const name = lang==='fr'?d.nameFr:d.nameEn;
+  planet.buildQueue.push({ type:'defense', id, name, qty });
+  await saveGame(); updateUI(); renderDefense();
+  notify(`${qty}x ${name} ${t('shipQueued')}`);
 };
 
 window._launchMission = async (type, name) => {
@@ -2623,6 +2757,7 @@ window._notify = notify;
       <button class="nav-btn" onclick="window._showPage('buildings')" id="nav-buildings"><span class="nav-icon">🏗️</span><span data-tkey="buildings">Bâtiments</span></button>
       <button class="nav-btn" onclick="window._showPage('research')" id="nav-research"><span class="nav-icon">🔬</span><span data-tkey="research">Recherche</span></button>
       <div class="nav-section">GUERRE</div>
+      <button class="nav-btn" onclick="window._showPage('defense')" id="nav-defense"><span class="nav-icon">🛡️</span><span>Défense</span></button>
       <button class="nav-btn" onclick="window._showPage('fleet')" id="nav-fleet"><span class="nav-icon">🚀</span><span data-tkey="fleet">Flotte</span></button>
       <button class="nav-btn" onclick="window._showPage('missions')" id="nav-missions"><span class="nav-icon">⚔️</span><span data-tkey="missions">Missions</span></button>
       <div class="nav-section">UNIVERS</div>
@@ -2672,6 +2807,22 @@ window._notify = notify;
         <div class="queue-box">
           <div class="queue-title">File de construction</div>
           <div id="build-queue-display"><div class="queue-empty">—</div></div>
+        </div>
+      </div>
+
+      <!-- DEFENSE -->
+      <div class="page" id="page-defense">
+        <div class="page-title">🛡️ Défense Planétaire</div>
+        <div class="page-subtitle">Fortifiez vos planètes. Les défenses absorbent les dégâts et ripostent automatiquement.</div>
+        <div class="cards-grid" id="defense-grid"></div>
+        <div style="margin-top:24px">
+          <div class="page-title" style="font-size:.85rem;margin-bottom:12px">Défenses actives</div>
+          <table class="fleet-table">
+            <thead><tr>
+              <th>Défense</th><th>Qté</th><th>DÉF/unité</th><th>Absorption</th>
+            </tr></thead>
+            <tbody id="defense-table-body"></tbody>
+          </table>
         </div>
       </div>
 
@@ -2759,6 +2910,7 @@ window._notify = notify;
   function _queueBuilding(id) { if(window._queueBuilding) window._queueBuilding(id); else setTimeout(()=>_queueBuilding(id), 100); }
   function _queueResearch(id) { if(window._queueResearch) window._queueResearch(id); else setTimeout(()=>_queueResearch(id), 100); }
   function _queueShip(id) { if(window._queueShip) window._queueShip(id); else setTimeout(()=>_queueShip(id), 100); }
+  function _queueDefense(id) { if(window._queueDefense) window._queueDefense(id); else setTimeout(()=>_queueDefense(id), 100); }
   function _launchMission(id,name) { if(window._launchMission) window._launchMission(id,name); else setTimeout(()=>_launchMission(id,name), 100); }
   function _openAttackModal(uid,name,planet) { if(window._openAttackModal) window._openAttackModal(uid,name,planet); else setTimeout(()=>_openAttackModal(uid,name,planet), 100); }
   function _openColonizeModal(n,s,e) { if(window._openColonizeModal) window._openColonizeModal(n,s,e); else setTimeout(()=>_openColonizeModal(n,s,e), 100); }
