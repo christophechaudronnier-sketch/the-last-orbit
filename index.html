@@ -999,7 +999,7 @@ window._confirmAttack = async () => {
       fleet: { ...window._attackFleet },
       attackerResearch: { ...G.research },
       turn: G.turn,
-      arrivalTurn: G.turn + 3,
+      arrivalTurn: G.turn + 1,
       status: 'pending',
       createdAt: Date.now(),
     });
@@ -1523,7 +1523,7 @@ async function renderAttackStatus(context) {
     const incoming = inSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
     const buildRow = (atk, isOut) => {
-      const arr = atk.arrivalTurn || (atk.turn + 3);
+      const arr = atk.arrivalTurn || (atk.turn + 1);
       const rem = Math.max(0, arr - G.turn);
       const fs = Object.entries(atk.fleet||{}).filter(([,v])=>v>0).map(([k,v])=>v+'x '+k).join(', ');
       const ec = isOut ? 'var(--accent3)' : 'var(--danger)';
