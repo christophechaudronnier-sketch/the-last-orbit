@@ -1005,7 +1005,7 @@ window._confirmAttack = async () => {
       status: 'pending',
       createdAt: Date.now(),
     });
-    // Déduire les vaisseaux envoyés de la flotte
+    // Déduire les vaisseaux envoyés de la flotte (indisponibles pendant l'attaque)
     const mp = G.planets[0];
     for (const [type, qty] of Object.entries(window._attackFleet)) {
       if (qty > 0 && mp.fleet[type] !== undefined) {
