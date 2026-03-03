@@ -679,9 +679,8 @@ async function processTurn() {
   if (G.pendingColonization) {
     const pc = G.pendingColonization;
     if (G.planets.length < maxPlanets()) {
-      const emojis = ['🪐','🌍','🌑','🌕','🔴','🟤','🔵'];
       const newPlanet = {
-        ...makePlanet(pc.planetName, emojis[Math.floor(Math.random()*emojis.length)], pc.sector, false),
+        ...makePlanet(pc.planetName, pc.emoji || null, pc.sector, false),
         hexCol: pc.hexCol !== undefined ? pc.hexCol : Math.floor(Math.random()*9),
         hexRow: pc.hexRow !== undefined ? pc.hexRow : Math.floor(Math.random()*9),
       };
@@ -1927,11 +1926,10 @@ window._showHexPopup = (col, row, event) => {
   }, 50);
 };
 
-// Surcharger _openColonizeModal pour accepter col/row
-const _origColonize = window._openColonizeModal;
+// Ouvre le modal de colonisation — accepte col/row pour mémoriser la case hex cliquée
 window._openColonizeModal = (planetName, sector, emoji, col, row) => {
-  window._colonizeHexCol = col !== undefined ? col : null;
-  window._colonizeHexRow = row !== undefined ? row : null;
+  window._colonizeHexCol = (col !== undefined && col !== null) ? col : null;
+  window._colonizeHexRow = (row !== undefined && row !== null) ? row : null;
   if (!G) return;
   if (G.planets.length >= maxPlanets()) { notify(t('colonizeMax'), true); return; }
   if (G.pendingColonization) { notify(t('colonizeAlready'), true); return; }
@@ -1940,7 +1938,8 @@ window._openColonizeModal = (planetName, sector, emoji, col, row) => {
   window._colonizeTarget = { planetName, sector, emoji };
   const modal = document.getElementById('colonize-modal');
   document.getElementById('colonize-modal-title').textContent = `${emoji} ${planetName}`;
-  document.getElementById('colonize-modal-sector').textContent = `${lang==='fr'?'Secteur':'Sector'} ${sector} · ${t('hexCoords')} (${col !== undefined ? col : '?'},${row !== undefined ? row : '?'})`;
+  const coordStr = (col !== undefined && col !== null) ? ` · ${t('hexCoords')} (${col},${row})` : '';
+  document.getElementById('colonize-modal-sector').textContent = `${lang==='fr'?'Secteur':'Sector'} ${sector}${coordStr}`;
   modal.style.display = 'flex';
 };
 
@@ -2004,21 +2003,8 @@ function generateEmptyPlanets(occupiedSectors) {
   }));
 }
 
-window._openColonizeModal = (planetName, sector, emoji) => {
-  if (!G) return;
-  if (G.planets.length >= maxPlanets()) { notify(t('colonizeMax'), true); return; }
-  if (G.pendingColonization) { notify(t('colonizeAlready'), true); return; }
-  // Vérifie si on a un colonisateur dispo sur n'importe quelle planète
-  const hasColonizer = G.planets.some(p => (p.fleet||{}).colonizer > 0);
-  if (!hasColonizer) { notify(t('colonizeNoShip'), true); return; }
-
-  window._colonizeTarget = { planetName, sector, emoji };
-
-  const modal = document.getElementById('colonize-modal');
-  document.getElementById('colonize-modal-title').textContent = `${emoji} ${planetName}`;
-  document.getElementById('colonize-modal-sector').textContent = `${lang==='fr'?'Secteur':'Sector'} ${sector}`;
-  modal.style.display = 'flex';
-};
+// NOTE: _openColonizeModal est défini plus haut (ligne ~1932) et gère déjà col/row
+// Cette version de remplacement est supprimée pour éviter l'écrasement du gestionnaire correct.
 
 window._closeColonizeModal = () => {
   document.getElementById('colonize-modal').style.display = 'none';
@@ -2994,7 +2980,7 @@ window._notify = notify;
   function _queueDefense(id) { if(window._queueDefense) window._queueDefense(id); else setTimeout(()=>_queueDefense(id), 100); }
   function _launchMission(id,name) { if(window._launchMission) window._launchMission(id,name); else setTimeout(()=>_launchMission(id,name), 100); }
   function _openAttackModal(uid,name,planet) { if(window._openAttackModal) window._openAttackModal(uid,name,planet); else setTimeout(()=>_openAttackModal(uid,name,planet), 100); }
-  function _openColonizeModal(n,s,e) { if(window._openColonizeModal) window._openColonizeModal(n,s,e); else setTimeout(()=>_openColonizeModal(n,s,e), 100); }
+  function _openColonizeModal(n,s,e,c,r) { if(window._openColonizeModal) window._openColonizeModal(n,s,e,c,r); else setTimeout(()=>_openColonizeModal(n,s,e,c,r), 100); }
   function _confirmColonize() { if(window._confirmColonize) window._confirmColonize(); else setTimeout(_confirmColonize, 100); }
   function _closeColonizeModal() { if(window._closeColonizeModal) window._closeColonizeModal(); else setTimeout(_closeColonizeModal, 100); }
   function _selectPlanet(i,p) { if(window._selectPlanet) window._selectPlanet(i,p); else setTimeout(()=>_selectPlanet(i,p), 100); }
