@@ -501,6 +501,9 @@ async function loadGame() {
         G.research.colonization = 0;
         await saveGame();
       }
+      // Migration : ajouter score et combatWins si absents (anciens comptes)
+      if (G.score === undefined) G.score = 0;
+      if (G.combatWins === undefined) G.combatWins = 0;
       activePlanetIndex = 0;
       return true;
     }
@@ -557,6 +560,8 @@ function createNewGame(planetName, commanderName) {
     pendingColonization: null,
     log: [],
     lastSeen: Date.now(),
+    score: 0,
+    combatWins: 0,
     // Compatibilité rétro — on garde aussi les champs plats pour ne pas casser l'ancien code
     get planetName() { return this.planets[0].name; },
     get planetEmoji() { return this.planets[0].emoji; },
@@ -586,7 +591,43 @@ function maxPlanets() {
   return 1 + lvl; // nv.0=1, nv.1=2, nv.2=3
 }
 
-function getProduction() {
+// ========== SCORE ==========
+function computeScore() {
+  if (!G) return 0;
+  let score = 0;
+
+  // Ressources accumulées : (métal + cristal×2 + énergie) / 100
+  const res = G.resources || {};
+  score += Math.floor(((res.metal||0) + (res.crystal||0)*2 + (res.energy||0)) / 100);
+
+  // Bâtiments : somme de tous les niveaux × 50 (toutes planètes)
+  (G.planets||[]).forEach(planet => {
+    Object.values(planet.buildings||{}).forEach(lv => { score += (lv||0) * 50; });
+  });
+
+  // Recherches : somme de tous les niveaux × 200
+  Object.values(G.research||{}).forEach(lv => { score += (lv||0) * 200; });
+
+  // Flotte : chasseur×10 + croiseur×50 + cuirassé×200 + colonisateur×30
+  (G.planets||[]).forEach(planet => {
+    const fl = planet.fleet||{};
+    score += (fl.fighter||0)    * 10;
+    score += (fl.cruiser||0)    * 50;
+    score += (fl.battleship||0) * 200;
+    score += (fl.colonizer||0)  * 30;
+  });
+
+  // Victoires en combat × 500
+  score += (G.combatWins||0) * 500;
+
+  // Colonies (hors planète principale) × 1000
+  const colonies = (G.planets||[]).length - 1;
+  score += Math.max(0, colonies) * 1000;
+
+  return Math.floor(score);
+}
+
+
   const prod = { metal:20, crystal:10, energy:10 };
   (G.planets||[]).forEach(planet => {
     BUILDINGS.forEach(b => {
@@ -679,8 +720,9 @@ async function processTurn() {
   if (G.pendingColonization) {
     const pc = G.pendingColonization;
     if (G.planets.length < maxPlanets()) {
+      const emojis = ['🪐','🌍','🌑','🌕','🔴','🟤','🔵'];
       const newPlanet = {
-        ...makePlanet(pc.planetName, pc.emoji || null, pc.sector, false),
+        ...makePlanet(pc.planetName, emojis[Math.floor(Math.random()*emojis.length)], pc.sector, false),
         hexCol: pc.hexCol !== undefined ? pc.hexCol : Math.floor(Math.random()*9),
         hexRow: pc.hexRow !== undefined ? pc.hexRow : Math.floor(Math.random()*9),
       };
@@ -699,6 +741,7 @@ async function processTurn() {
   G.turn++;
   G.nextTurnTime = nextMidnight();
   G.lastSeen = Date.now();
+  G.score = computeScore();
   addLog(`🌅 ${lang==='fr'?'Tour':'Turn'} ${G.turn} — +${prod.metal}🪨 +${prod.crystal}💎 +${prod.energy}⚡`, 'info');
   await saveGame();
   notify(t('turnStarted'));
@@ -907,6 +950,7 @@ async function processIncomingAttacks() {
       if (r.victory) {
         G.resources.metal   += r.loot?.metal  || 0;
         G.resources.crystal += r.loot?.crystal || 0;
+        G.combatWins = (G.combatWins||0) + 1;
       }
 
       const outcomeLabel = r.victory ? (lang==='fr'?'🟢 VICTOIRE':'🟢 VICTORY') : (lang==='fr'?'🔴 DÉFAITE':'🔴 DEFEAT');
@@ -1324,6 +1368,7 @@ function renderPage(id) {
   else if (id==='galaxy') renderGalaxy();
   else if (id==='market') { window._marketTab = window._marketTab||'public'; renderMarket(); }
   else if (id==='alliance') renderAlliance();
+  else if (id==='ranking') renderRanking();
   else { updateUI(); renderAttackStatus('overview'); }
 }
 
@@ -1926,10 +1971,11 @@ window._showHexPopup = (col, row, event) => {
   }, 50);
 };
 
-// Ouvre le modal de colonisation — accepte col/row pour mémoriser la case hex cliquée
+// Surcharger _openColonizeModal pour accepter col/row
+const _origColonize = window._openColonizeModal;
 window._openColonizeModal = (planetName, sector, emoji, col, row) => {
-  window._colonizeHexCol = (col !== undefined && col !== null) ? col : null;
-  window._colonizeHexRow = (row !== undefined && row !== null) ? row : null;
+  window._colonizeHexCol = col !== undefined ? col : null;
+  window._colonizeHexRow = row !== undefined ? row : null;
   if (!G) return;
   if (G.planets.length >= maxPlanets()) { notify(t('colonizeMax'), true); return; }
   if (G.pendingColonization) { notify(t('colonizeAlready'), true); return; }
@@ -1938,12 +1984,141 @@ window._openColonizeModal = (planetName, sector, emoji, col, row) => {
   window._colonizeTarget = { planetName, sector, emoji };
   const modal = document.getElementById('colonize-modal');
   document.getElementById('colonize-modal-title').textContent = `${emoji} ${planetName}`;
-  const coordStr = (col !== undefined && col !== null) ? ` · ${t('hexCoords')} (${col},${row})` : '';
-  document.getElementById('colonize-modal-sector').textContent = `${lang==='fr'?'Secteur':'Sector'} ${sector}${coordStr}`;
+  document.getElementById('colonize-modal-sector').textContent = `${lang==='fr'?'Secteur':'Sector'} ${sector} · ${t('hexCoords')} (${col !== undefined ? col : '?'},${row !== undefined ? row : '?'})`;
   modal.style.display = 'flex';
 };
 
-function renderLog() {
+// ========== CLASSEMENT ==========
+async function renderRanking() {
+  const el = document.getElementById('ranking-content');
+  if (!el) return;
+  el.innerHTML = `<div style="color:var(--text2);font-style:italic">${t('loading')}</div>`;
+
+  // Récupère tous les joueurs depuis Firestore
+  const players = await loadGalaxy(); // renvoie les autres joueurs
+  // Ajouter notre propre profil
+  const myScore = G.score !== undefined ? G.score : computeScore();
+  const allPlayers = [
+    {
+      uid: currentUser.uid,
+      commanderName: G.commanderName,
+      score: myScore,
+      planets: G.planets,
+      research: G.research,
+      combatWins: G.combatWins||0,
+      isMe: true,
+    },
+    ...players.map(p => ({
+      uid: p.uid,
+      commanderName: p.commanderName || '???',
+      score: p.score || 0,
+      planets: p.planets || [],
+      research: p.research || {},
+      combatWins: p.combatWins || 0,
+      isMe: false,
+    }))
+  ];
+
+  // Trier par score décroissant
+  allPlayers.sort((a, b) => b.score - a.score);
+
+  const medals = ['🥇','🥈','🥉'];
+
+  const fmt2 = (n) => {
+    if (n >= 1000000) return (n/1000000).toFixed(1)+'M';
+    if (n >= 1000) return (n/1000).toFixed(1)+'k';
+    return String(n);
+  };
+
+  let html = `
+    <div style="margin-bottom:20px;padding:16px;background:rgba(255,215,0,.06);border:1px solid rgba(255,215,0,.25);border-radius:6px;display:flex;align-items:center;gap:16px">
+      <div style="font-size:2rem">🏆</div>
+      <div>
+        <div style="font-family:'Orbitron',monospace;font-size:.75rem;color:rgba(255,215,0,.8);letter-spacing:2px">VOTRE SCORE</div>
+        <div style="font-family:'Orbitron',monospace;font-size:1.4rem;color:#FFD700;font-weight:900">${fmt(myScore)}</div>
+        <div style="font-size:.8rem;color:var(--text2);margin-top:2px">${lang==='fr'?'Mis à jour à chaque tour':'Updated each turn'}</div>
+      </div>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:.88rem">
+      <thead>
+        <tr style="background:var(--panel2)">
+          <th style="padding:10px 12px;text-align:left;font-family:'Orbitron',monospace;font-size:.7rem;color:var(--text2);letter-spacing:1px;border-bottom:1px solid var(--border)">#</th>
+          <th style="padding:10px 12px;text-align:left;font-family:'Orbitron',monospace;font-size:.7rem;color:var(--text2);letter-spacing:1px;border-bottom:1px solid var(--border)">COMMANDANT</th>
+          <th style="padding:10px 12px;text-align:right;font-family:'Orbitron',monospace;font-size:.7rem;color:var(--text2);letter-spacing:1px;border-bottom:1px solid var(--border)">SCORE</th>
+          <th style="padding:10px 12px;text-align:right;font-family:'Orbitron',monospace;font-size:.7rem;color:var(--text2);letter-spacing:1px;border-bottom:1px solid var(--border)">🌍 PLANÈTES</th>
+          <th style="padding:10px 12px;text-align:right;font-family:'Orbitron',monospace;font-size:.7rem;color:var(--text2);letter-spacing:1px;border-bottom:1px solid var(--border)">⚔️ VICTOIRES</th>
+          <th style="padding:10px 12px;text-align:right;font-family:'Orbitron',monospace;font-size:.7rem;color:var(--text2);letter-spacing:1px;border-bottom:1px solid var(--border)">🔬 RECHERCHES</th>
+        </tr>
+      </thead>
+      <tbody>`;
+
+  allPlayers.forEach((p, i) => {
+    const rank = i + 1;
+    const medal = medals[i] || `#${rank}`;
+    const isMe = p.isMe;
+    const bg = isMe ? 'rgba(0,200,255,.07)' : (i%2===0 ? 'transparent' : 'rgba(255,255,255,.02)');
+    const border = isMe ? 'border-left:3px solid var(--accent);' : 'border-left:3px solid transparent;';
+    const nameColor = isMe ? 'var(--accent)' : 'var(--text)';
+    const totalResearch = Object.values(p.research||{}).reduce((a,b)=>a+(b||0),0);
+    const planetCount = (p.planets||[]).length;
+    const mainPlanet = (p.planets||[])[0] || {};
+
+    html += `<tr style="background:${bg};${border}transition:background .15s">
+      <td style="padding:12px 12px;font-family:'Orbitron',monospace;font-size:.9rem;text-align:left">${medal}</td>
+      <td style="padding:12px 12px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-size:1.3rem">${mainPlanet.emoji||'🪐'}</span>
+          <div>
+            <div style="font-family:'Orbitron',monospace;font-size:.78rem;color:${nameColor};font-weight:700">${p.commanderName}${isMe?' <span style="font-size:.65rem;color:var(--accent);opacity:.8">(vous)</span>':''}</div>
+            <div style="font-size:.72rem;color:var(--text2);margin-top:2px">${mainPlanet.name||'???'}</div>
+          </div>
+        </div>
+      </td>
+      <td style="padding:12px 12px;text-align:right;font-family:'Orbitron',monospace;font-size:.9rem;font-weight:700;color:${isMe?'#FFD700':'var(--text)'}">${fmt(p.score||0)}</td>
+      <td style="padding:12px 12px;text-align:right;color:var(--accent3)">${planetCount}</td>
+      <td style="padding:12px 12px;text-align:right;color:var(--accent2)">${p.combatWins||0}</td>
+      <td style="padding:12px 12px;text-align:right;color:var(--crystal)">${totalResearch}</td>
+    </tr>`;
+  });
+
+  html += `</tbody></table>`;
+
+  // Décomposition du score du joueur
+  const resScore  = Math.floor(((G.resources.metal||0) + (G.resources.crystal||0)*2 + (G.resources.energy||0)) / 100);
+  let bldScore = 0;
+  (G.planets||[]).forEach(planet => { Object.values(planet.buildings||{}).forEach(lv => { bldScore += (lv||0)*50; }); });
+  const researchScore = Object.values(G.research||{}).reduce((a,lv)=>a+(lv||0)*200, 0);
+  let fleetScore = 0;
+  (G.planets||[]).forEach(planet => {
+    const fl = planet.fleet||{};
+    fleetScore += (fl.fighter||0)*10 + (fl.cruiser||0)*50 + (fl.battleship||0)*200 + (fl.colonizer||0)*30;
+  });
+  const winScore    = (G.combatWins||0) * 500;
+  const colonyScore = Math.max(0, (G.planets||[]).length-1) * 1000;
+
+  html += `
+    <div style="margin-top:28px;padding:20px;background:var(--panel);border:1px solid var(--border);border-radius:6px">
+      <div style="font-family:'Orbitron',monospace;font-size:.72rem;color:var(--text2);letter-spacing:2px;margin-bottom:14px">📊 DÉTAIL DE VOTRE SCORE</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px">
+        ${[
+          ['🪨 Ressources',  resScore],
+          ['🏗️ Bâtiments',   bldScore],
+          ['🔬 Recherches',  researchScore],
+          ['🚀 Flotte',      fleetScore],
+          ['⚔️ Victoires',   winScore],
+          ['🌍 Colonies',    colonyScore],
+        ].map(([label, val]) => `
+          <div style="background:var(--panel2);border:1px solid var(--border);border-radius:4px;padding:12px;text-align:center">
+            <div style="font-size:.78rem;color:var(--text2);margin-bottom:4px">${label}</div>
+            <div style="font-family:'Orbitron',monospace;font-size:1rem;color:var(--accent);font-weight:700">${fmt(val)}</div>
+          </div>`).join('')}
+      </div>
+    </div>`;
+
+  el.innerHTML = html;
+}
+
+
   const el = document.getElementById('log-display');
   if (!el) return;
   if (!G.log || G.log.length === 0) {
@@ -2003,8 +2178,21 @@ function generateEmptyPlanets(occupiedSectors) {
   }));
 }
 
-// NOTE: _openColonizeModal est défini plus haut (ligne ~1932) et gère déjà col/row
-// Cette version de remplacement est supprimée pour éviter l'écrasement du gestionnaire correct.
+window._openColonizeModal = (planetName, sector, emoji) => {
+  if (!G) return;
+  if (G.planets.length >= maxPlanets()) { notify(t('colonizeMax'), true); return; }
+  if (G.pendingColonization) { notify(t('colonizeAlready'), true); return; }
+  // Vérifie si on a un colonisateur dispo sur n'importe quelle planète
+  const hasColonizer = G.planets.some(p => (p.fleet||{}).colonizer > 0);
+  if (!hasColonizer) { notify(t('colonizeNoShip'), true); return; }
+
+  window._colonizeTarget = { planetName, sector, emoji };
+
+  const modal = document.getElementById('colonize-modal');
+  document.getElementById('colonize-modal-title').textContent = `${emoji} ${planetName}`;
+  document.getElementById('colonize-modal-sector').textContent = `${lang==='fr'?'Secteur':'Sector'} ${sector}`;
+  modal.style.display = 'flex';
+};
 
 window._closeColonizeModal = () => {
   document.getElementById('colonize-modal').style.display = 'none';
@@ -2827,6 +3015,7 @@ window._notify = notify;
       <button class="nav-btn" onclick="window._showPage('missions')" id="nav-missions"><span class="nav-icon">⚔️</span><span data-tkey="missions">Missions</span></button>
       <div class="nav-section">UNIVERS</div>
       <button class="nav-btn" onclick="window._showPage('galaxy')" id="nav-galaxy"><span class="nav-icon">🌌</span><span data-tkey="galaxy">Galaxie</span></button>
+      <button class="nav-btn" onclick="window._showPage('ranking')" id="nav-ranking"><span class="nav-icon">🏆</span><span>Classement</span></button>
       <button class="nav-btn" onclick="window._showPage('market')" id="nav-market"><span class="nav-icon">💱</span><span data-tkey="market">Marché</span></button>
       <button class="nav-btn" onclick="window._showPage('alliance')" id="nav-alliance"><span class="nav-icon">🤝</span><span data-tkey="alliance">Alliance</span></button>
       <button class="nav-btn" onclick="window._showPage('log')" id="nav-log"><span class="nav-icon">📜</span><span data-tkey="log">Journal</span></button>
@@ -2961,6 +3150,13 @@ window._notify = notify;
         <div id="alliance-content"></div>
       </div>
 
+      <!-- RANKING -->
+      <div class="page" id="page-ranking">
+        <div class="page-title">🏆 Classement</div>
+        <div class="page-subtitle">Scores mis à jour à chaque tour.</div>
+        <div id="ranking-content"><div style="color:var(--text2);font-style:italic">Chargement...</div></div>
+      </div>
+
     </div>
   </div>
 </div>
@@ -2980,7 +3176,7 @@ window._notify = notify;
   function _queueDefense(id) { if(window._queueDefense) window._queueDefense(id); else setTimeout(()=>_queueDefense(id), 100); }
   function _launchMission(id,name) { if(window._launchMission) window._launchMission(id,name); else setTimeout(()=>_launchMission(id,name), 100); }
   function _openAttackModal(uid,name,planet) { if(window._openAttackModal) window._openAttackModal(uid,name,planet); else setTimeout(()=>_openAttackModal(uid,name,planet), 100); }
-  function _openColonizeModal(n,s,e,c,r) { if(window._openColonizeModal) window._openColonizeModal(n,s,e,c,r); else setTimeout(()=>_openColonizeModal(n,s,e,c,r), 100); }
+  function _openColonizeModal(n,s,e) { if(window._openColonizeModal) window._openColonizeModal(n,s,e); else setTimeout(()=>_openColonizeModal(n,s,e), 100); }
   function _confirmColonize() { if(window._confirmColonize) window._confirmColonize(); else setTimeout(_confirmColonize, 100); }
   function _closeColonizeModal() { if(window._closeColonizeModal) window._closeColonizeModal(); else setTimeout(_closeColonizeModal, 100); }
   function _selectPlanet(i,p) { if(window._selectPlanet) window._selectPlanet(i,p); else setTimeout(()=>_selectPlanet(i,p), 100); }
