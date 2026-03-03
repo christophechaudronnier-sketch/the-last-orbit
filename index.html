@@ -627,7 +627,7 @@ function computeScore() {
   return Math.floor(score);
 }
 
-
+function getProduction() {
   const prod = { metal:20, crystal:10, energy:10 };
   (G.planets||[]).forEach(planet => {
     BUILDINGS.forEach(b => {
