@@ -921,10 +921,19 @@ async function processIncomingAttacks() {
 }
 
 // Ouvre le modal d'attaque
-window._openAttackModal = (targetUid, targetName, targetPlanet) => {
+window._openAttackModal = async (targetUid, targetName, targetPlanet) => {
   if (!G) return;
   const totalFleet = Object.values(G.planets[0].fleet||{}).reduce((a,b)=>a+b,0);
   if (totalFleet === 0) { notify(t('attackNoFleet'), true); return; }
+
+  // Bloquer si une attaque est déjà en cours (flotte en vol)
+  try {
+    const inFlight = await getDocs(query(collection(db, 'attacks'),
+      where('attackerUid', '==', currentUser.uid),
+      where('status', '==', 'pending')
+    ));
+    if (!inFlight.empty) { notify(t('attackAlready'), true); return; }
+  } catch(e) {}
 
   window._attackTarget = { uid: targetUid, name: targetName, planet: targetPlanet };
   window._attackFleet  = { fighter:0, cruiser:0, battleship:0, colonizer:0 };
@@ -985,7 +994,6 @@ window._confirmAttack = async () => {
   try {
     const existing = await getDocs(query(collection(db, 'attacks'),
       where('attackerUid', '==', currentUser.uid),
-      where('targetUid', '==', window._attackTarget.uid),
       where('status', '==', 'pending')
     ));
     if (!existing.empty) { notify(t('attackAlready'), true); return; }
