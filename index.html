@@ -1256,14 +1256,20 @@ async function renderAlliance() {
         <div style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:6px;padding:20px">
           <div style="font-family:'Orbitron',monospace;font-size:.75rem;color:var(--text2);letter-spacing:2px;margin-bottom:16px">${t('availableAlliances').toUpperCase()}</div>
           ${openAlliances.length === 0 ? `<div style="color:var(--text2);font-size:.85rem">${t('noAvailableAlliances')}</div>` :
-            openAlliances.map(a => `
+            openAlliances.map(a => {
+              const hasPending = (a.requests||[]).some(r => r.uid === currentUser.uid);
+              return `
               <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.05)">
                 <div>
                   <div style="font-weight:600">🤝 ${a.name}</div>
                   <div style="font-size:.75rem;color:var(--text2)">${a.members.length}/5 · ${t('chief')} : ${a.chiefName}</div>
                 </div>
-                <button onclick="window._requestJoin('${a.id}')" class="btn" style="padding:5px 12px;font-size:.75rem">${t('requestJoin')}</button>
-              </div>`).join('')}
+                ${hasPending
+                  ? `<span style="font-size:.75rem;color:var(--accent3);border:1px solid var(--accent3);padding:4px 10px;border-radius:3px;font-family:'Rajdhani',sans-serif;font-weight:700;letter-spacing:1px">⏳ EN ATTENTE</span>`
+                  : `<button onclick="window._requestJoin('${a.id}')" class="btn" style="padding:5px 12px;font-size:.75rem">${t('requestJoin')}</button>`
+                }
+              </div>`;
+            }).join('')}
         </div>
       </div>
       <div style="color:var(--text2);font-size:.85rem;text-align:center">${t('noAlliance')}</div>`;
