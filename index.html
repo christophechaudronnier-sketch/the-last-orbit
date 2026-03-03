@@ -2118,7 +2118,7 @@ async function renderRanking() {
   el.innerHTML = html;
 }
 
-
+function renderLog() {
   const el = document.getElementById('log-display');
   if (!el) return;
   if (!G.log || G.log.length === 0) {
