@@ -2235,6 +2235,8 @@ window._toggleLang = () => {
 };
 
 window._logout = async () => {
+  if (_playerUnsub) { _playerUnsub(); _playerUnsub = null; }
+  if (_allianceUnsub) { _allianceUnsub(); _allianceUnsub = null; }
   await signOut(auth);
   G = null; currentUser = null;
   showAuthScreen();
@@ -2245,6 +2247,24 @@ function showAuthScreen() {
   document.getElementById('auth-screen').style.display = 'flex';
   document.getElementById('game-screen').style.display = 'none';
 }
+// Listener temps réel sur le propre document Firebase du joueur
+// Détecte les changements distants (ex: acceptation dans une alliance)
+let _playerUnsub = null;
+function startPlayerListener() {
+  if (_playerUnsub) _playerUnsub();
+  if (!currentUser) return;
+  _playerUnsub = onSnapshot(doc(db, 'players', currentUser.uid), (snap) => {
+    if (!snap.exists() || !G) return;
+    const data = snap.data();
+    if (data.allianceId !== G.allianceId) {
+      G.allianceId = data.allianceId || null;
+      const activePage = document.querySelector('.page.active');
+      if (activePage && activePage.id === 'page-alliance') renderAlliance();
+      if (G.allianceId) notify(lang==='fr'?'\u2705 Vous avez rejoint une alliance !':'\u2705 You joined an alliance!');
+    }
+  });
+}
+
 function showGameScreen() {
   document.getElementById('auth-screen').style.display = 'none';
   document.getElementById('game-screen').style.display = 'flex';
@@ -2252,6 +2272,7 @@ function showGameScreen() {
   showPage('overview');
   setInterval(updateCountdown, 1000);
   updateCountdown();
+  startPlayerListener();
 }
 function showSetup() {
   document.getElementById('auth-screen').style.display = 'none';
