@@ -857,7 +857,7 @@ async function processIncomingAttacks() {
     ));
     for (const attackSnap of snap.docs) {
       const atk = attackSnap.data();
-      if (atk.arrivalTurn && G.turn < atk.arrivalTurn) continue;
+      // L'attaque se résout toujours au prochain tour du défenseur (délai = 1 tour)
       const report = resolveCombat(atk.fleet, atk.attackerResearch, G);
 
       // Applique les conséquences sur le défenseur (planète principale)
@@ -1523,8 +1523,8 @@ async function renderAttackStatus(context) {
     const incoming = inSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
     const buildRow = (atk, isOut) => {
-      const arr = atk.arrivalTurn || (atk.turn + 1);
-      const rem = Math.max(0, arr - G.turn);
+      // Pour l'affichage : toujours 1 tour de délai (résolution au prochain tour)
+      const rem = isOut ? Math.max(0, (atk.arrivalTurn || (atk.turn + 1)) - G.turn) : 1;
       const fs = Object.entries(atk.fleet||{}).filter(([,v])=>v>0).map(([k,v])=>v+'x '+k).join(', ');
       const ec = isOut ? 'var(--accent3)' : 'var(--danger)';
       const etaLabel = rem === 0
