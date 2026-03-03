@@ -777,9 +777,15 @@ const AI_PROFILES = [
   { id:'ai_crimorg',    nameKey:'expansionist', commanderName:'Crimorg',       planetName:'Crimorg Expanse', emoji:'🟤', personality:'expansionist' },
 ];
 
-function makeAIGame(profile) {
-  const hexCol = Math.floor(Math.random()*9);
-  const hexRow = Math.floor(Math.random()*9);
+// Positions fixes pour les 8 IA — bien réparties sur la grille 9x9, jamais en collision
+const AI_FIXED_COORDS = [
+  {col:1, row:1}, {col:4, row:1}, {col:7, row:1},
+  {col:1, row:4}, {col:7, row:4},
+  {col:1, row:7}, {col:4, row:7}, {col:7, row:7},
+];
+
+function makeAIGame(profile, coordIndex) {
+  const coords = AI_FIXED_COORDS[coordIndex] || { col: coordIndex % 9, row: Math.floor(coordIndex/9) % 9 };
   return {
     isAI: true,
     personality: profile.personality,
@@ -792,7 +798,8 @@ function makeAIGame(profile) {
       name: profile.planetName,
       emoji: profile.emoji,
       sector: Math.floor(Math.random()*9)+1,
-      hexCol, hexRow,
+      hexCol: coords.col,
+      hexRow: coords.row,
       isMain: true,
       buildings: { mine_metal:0, mine_crystal:0, power_plant:0, shipyard:0, research_lab:0, spaceport:0 },
       fleet: { fighter:0, cruiser:0, battleship:0, colonizer:0 },
@@ -810,14 +817,27 @@ function makeAIGame(profile) {
 
 // Initialise les IA dans Firestore si elles n'existent pas encore
 async function initAIPlayers() {
-  for (const profile of AI_PROFILES) {
+  for (let i = 0; i < AI_PROFILES.length; i++) {
+    const profile = AI_PROFILES[i];
     try {
       const ref = doc(db, 'players', profile.id);
       const snap = await getDoc(ref);
       if (!snap.exists()) {
-        const aiData = makeAIGame(profile);
+        const aiData = makeAIGame(profile, i);
         await setDoc(ref, aiData);
         console.log('IA créée:', profile.commanderName);
+      } else {
+        // Corriger les coords si elles sont nulles ou aléatoires (migration)
+        const data = snap.data();
+        const planet = data.planets && data.planets[0];
+        const fixed = AI_FIXED_COORDS[i];
+        if (planet && (planet.hexCol === null || planet.hexCol === undefined ||
+            planet.hexRow === null || planet.hexRow === undefined)) {
+          data.planets[0].hexCol = fixed.col;
+          data.planets[0].hexRow = fixed.row;
+          await setDoc(ref, data);
+          console.log('IA coords corrigées:', profile.commanderName);
+        }
       }
     } catch(e) { console.error('initAI error:', profile.id, e); }
   }
@@ -2160,16 +2180,38 @@ async function renderGalaxy() {
   });
   if (ownNeedsSave) await saveGame();
 
-  // Planètes des autres joueurs
-  for (const p of players) {
+  // Planètes des autres joueurs — les IA en premier (coords fixes garanties)
+  const sortedPlayers = [...players].sort((a, b) => {
+    if (a.isAI && !b.isAI) return -1;
+    if (!a.isAI && b.isAI) return 1;
+    return 0;
+  });
+
+  for (const p of sortedPlayers) {
     const planets = p.planets && p.planets.length > 0 ? p.planets : [{ name: p.planetName, emoji: p.planetEmoji, hexCol: null, hexRow: null, sector: p.sector }];
     planets.forEach((pl, i) => {
       let col = pl.hexCol ?? null;
       let row = pl.hexRow ?? null;
       // Si pas de coords valides, calculer de façon déterministe à partir de l'UID
-      if (col === null || row === null || col === undefined || row === undefined || cellMap[`${col},${row}`]) {
+      if (col === null || row === null || col === undefined || row === undefined) {
         const coords = uidToCoords(p.uid || p.commanderName || 'unknown', i, cellMap, COLS, ROWS);
         col = coords.col; row = coords.row;
+      }
+      // Si collision avec une case déjà occupée, trouver la case libre la plus proche
+      if (cellMap[`${col},${row}`]) {
+        let found = false;
+        for (let dist = 1; dist < 9 && !found; dist++) {
+          for (let dc = -dist; dc <= dist && !found; dc++) {
+            for (let dr = -dist; dr <= dist && !found; dr++) {
+              if (Math.abs(dc) !== dist && Math.abs(dr) !== dist) continue;
+              const nc = (col + dc + COLS) % COLS;
+              const nr = (row + dr + ROWS) % ROWS;
+              if (!cellMap[`${nc},${nr}`]) {
+                col = nc; row = nr; found = true;
+              }
+            }
+          }
+        }
       }
       cellMap[`${col},${row}`] = {
         type: 'enemy',
