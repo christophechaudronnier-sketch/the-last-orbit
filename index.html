@@ -675,12 +675,11 @@ function updateSeasonUI() {
   }
   const remaining = Math.max(0, currentSeason.endDate - Date.now());
   const days = Math.floor(remaining / (24*60*60*1000));
-  const hours = Math.floor((remaining % (24*60*60*1000)) / (60*60*1000));
   const color = days <= 7 ? 'var(--accent2)' : 'var(--accent3)';
   el.innerHTML = `
     <div style="font-size:.65rem;color:var(--text2);letter-spacing:1px">SAISON ${currentSeason.number}</div>
     <div style="font-family:'Orbitron',monospace;font-size:.8rem;color:${color};font-weight:700">
-      ${days}j ${hours}h restants
+      ${days} jour${days > 1 ? 's' : ''} restant${days > 1 ? 's' : ''}
     </div>`;
 }
 
