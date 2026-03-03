@@ -738,6 +738,9 @@ async function processTurn() {
   // Traitement des combats multijoueur
   await processIncomingAttacks();
 
+  // Traitement des tours IA
+  await processAITurns();
+
   G.turn++;
   G.nextTurnTime = nextMidnight();
   G.lastSeen = Date.now();
@@ -751,6 +754,401 @@ async function processTurn() {
     notify(lang==='fr'?'Erreur lors du traitement du tour.':'Error processing turn.', true);
   } finally {
     _processingTurn = false;
+  }
+}
+
+// ========== SYSTÈME IA ==========
+
+const AI_PERSONALITIES = [
+  { id:'builder',       nameFr:'Le Bâtisseur',      nameEn:'The Builder',       emoji:'🏗️', style:'economic'    },
+  { id:'conqueror',     nameFr:'Le Conquérant',      nameEn:'The Conqueror',     emoji:'⚔️', style:'aggressive'  },
+  { id:'researcher',    nameFr:'Le Chercheur',       nameEn:'The Researcher',    emoji:'🔬', style:'research'    },
+  { id:'expansionist',  nameFr:'L\'Expansionniste',  nameEn:'The Expansionist',  emoji:'🌍', style:'expansion'   },
+];
+
+const AI_PROFILES = [
+  { id:'ai_zorgath',    nameKey:'builder',      commanderName:'Zorgath-7',     planetName:'Zorgath Prime',   emoji:'🔴', personality:'builder'      },
+  { id:'ai_nexara',     nameKey:'conqueror',    commanderName:'Nexara-X',      planetName:'Nexara Bastion',  emoji:'🟤', personality:'conqueror'    },
+  { id:'ai_veladis',    nameKey:'researcher',   commanderName:'Veladis-9',     planetName:'Veladis Core',    emoji:'🔵', personality:'researcher'   },
+  { id:'ai_korroth',    nameKey:'expansionist', commanderName:'Korroth',       planetName:'Korroth Nexus',   emoji:'🌕', personality:'expansionist' },
+  { id:'ai_sygma',      nameKey:'conqueror',    commanderName:'Sygma-III',     planetName:'Sygma Forge',     emoji:'🪐', personality:'conqueror'    },
+  { id:'ai_eldara',     nameKey:'builder',      commanderName:'Eldara',        planetName:'Eldara Station',  emoji:'🌑', personality:'builder'      },
+  { id:'ai_vorthan',    nameKey:'researcher',   commanderName:'Vorthan-12',    planetName:'Vorthan Lab',     emoji:'🔴', personality:'researcher'   },
+  { id:'ai_crimorg',    nameKey:'expansionist', commanderName:'Crimorg',       planetName:'Crimorg Expanse', emoji:'🟤', personality:'expansionist' },
+];
+
+function makeAIGame(profile) {
+  const hexCol = Math.floor(Math.random()*9);
+  const hexRow = Math.floor(Math.random()*9);
+  return {
+    isAI: true,
+    personality: profile.personality,
+    commanderName: profile.commanderName,
+    turn: 1,
+    nextTurnTime: nextMidnight(),
+    resources: { metal: 5000, crystal: 2000, energy: 500 },
+    research: { combustion:0, weapons:0, shields:0, espionage:0, hyperdrive:0, colonization:0 },
+    planets: [{
+      name: profile.planetName,
+      emoji: profile.emoji,
+      sector: Math.floor(Math.random()*9)+1,
+      hexCol, hexRow,
+      isMain: true,
+      buildings: { mine_metal:0, mine_crystal:0, power_plant:0, shipyard:0, research_lab:0, spaceport:0 },
+      fleet: { fighter:0, cruiser:0, battleship:0, colonizer:0 },
+      defense: { shields:0, cannons:0, rockets:0 },
+      buildQueue: [],
+    }],
+    activeMissions: [],
+    pendingColonization: null,
+    log: [],
+    lastSeen: Date.now(),
+    score: 0,
+    combatWins: 0,
+  };
+}
+
+// Initialise les IA dans Firestore si elles n'existent pas encore
+async function initAIPlayers() {
+  for (const profile of AI_PROFILES) {
+    try {
+      const ref = doc(db, 'players', profile.id);
+      const snap = await getDoc(ref);
+      if (!snap.exists()) {
+        const aiData = makeAIGame(profile);
+        await setDoc(ref, aiData);
+        console.log('IA créée:', profile.commanderName);
+      }
+    } catch(e) { console.error('initAI error:', profile.id, e); }
+  }
+}
+
+// Calcule la production pour une IA (même logique que getProduction mais sans G)
+function getAIProduction(ai) {
+  const prod = { metal:20, crystal:10, energy:10 };
+  (ai.planets||[]).forEach(planet => {
+    BUILDINGS.forEach(b => {
+      const lv = (planet.buildings||{})[b.id]||0;
+      if (!lv || !b.production) return;
+      prod[b.production] += b.prodBase * lv;
+    });
+  });
+  return prod;
+}
+
+// Vérifie si l'IA peut se payer un coût
+function aiCanAfford(ai, cost) {
+  return ai.resources.metal >= (cost.metal||0)
+      && ai.resources.crystal >= (cost.crystal||0)
+      && ai.resources.energy >= (cost.energy||0);
+}
+
+// Vérifie les prérequis pour une IA
+function aiMeetsReqs(ai, requires) {
+  if (!requires) return true;
+  const planet = ai.planets[0];
+  for (const [k,v] of Object.entries(requires)) {
+    const actual = (planet.buildings||{})[k] !== undefined
+      ? (planet.buildings||{})[k]
+      : (ai.research||{})[k] !== undefined
+        ? (ai.research||{})[k] : 0;
+    if (actual < v) return false;
+  }
+  return true;
+}
+
+// Calcule le score d'une IA
+function computeAIScore(ai) {
+  let score = 0;
+  const res = ai.resources||{};
+  score += Math.floor(((res.metal||0) + (res.crystal||0)*2 + (res.energy||0)) / 100);
+  (ai.planets||[]).forEach(planet => {
+    Object.values(planet.buildings||{}).forEach(lv => { score += (lv||0)*50; });
+  });
+  Object.values(ai.research||{}).forEach(lv => { score += (lv||0)*200; });
+  (ai.planets||[]).forEach(planet => {
+    const fl = planet.fleet||{};
+    score += (fl.fighter||0)*10 + (fl.cruiser||0)*50 + (fl.battleship||0)*200 + (fl.colonizer||0)*30;
+  });
+  score += (ai.combatWins||0)*500;
+  score += Math.max(0,(ai.planets||[]).length-1)*1000;
+  return Math.floor(score);
+}
+
+// Décision IA : que construire ce tour ?
+function aiDecide(ai) {
+  const p = ai.personality;
+  const planet = ai.planets[0];
+  const blds = planet.buildings||{};
+  const res = ai.research||{};
+  const fleet = planet.fleet||{};
+  const actions = []; // liste de ce qu'on va faire
+
+  // Priorités selon la personnalité
+  // 1. Toujours avoir au moins une mine de métal et une centrale
+  if ((blds.mine_metal||0) < 2) {
+    const b = BUILDINGS.find(x=>x.id==='mine_metal');
+    const cost = getBuildingCostAI(b, blds.mine_metal||0);
+    if (aiCanAfford(ai, cost)) { actions.push({ type:'building', b, cost }); }
+  }
+  if ((blds.power_plant||0) < 2) {
+    const b = BUILDINGS.find(x=>x.id==='power_plant');
+    const cost = getBuildingCostAI(b, blds.power_plant||0);
+    if (aiCanAfford(ai, cost)) { actions.push({ type:'building', b, cost }); }
+  }
+
+  if (p === 'builder' || p === 'expansionist') {
+    // Priorité mines
+    ['mine_metal','mine_crystal','power_plant'].forEach(id => {
+      const b = BUILDINGS.find(x=>x.id===id);
+      const lv = blds[id]||0;
+      if (lv < 8) {
+        const cost = getBuildingCostAI(b, lv);
+        if (aiCanAfford(ai, cost)) actions.push({ type:'building', b, cost });
+      }
+    });
+    // Chantier naval pour colonisateur
+    if (p === 'expansionist' && (blds.shipyard||0) < 2) {
+      const b = BUILDINGS.find(x=>x.id==='shipyard');
+      const cost = getBuildingCostAI(b, blds.shipyard||0);
+      if (aiCanAfford(ai, cost)) actions.push({ type:'building', b, cost });
+    }
+  }
+
+  if (p === 'researcher') {
+    // Priorité labo puis recherches
+    if ((blds.research_lab||0) < 4) {
+      const b = BUILDINGS.find(x=>x.id==='research_lab');
+      const cost = getBuildingCostAI(b, blds.research_lab||0);
+      if (aiCanAfford(ai, cost)) actions.push({ type:'building', b, cost });
+    }
+    RESEARCH.forEach(r => {
+      const lv = res[r.id]||0;
+      const maxLv = r.maxLevel||5;
+      if (lv < maxLv && aiMeetsReqs(ai, r.requires)) {
+        const cost = getResearchCostAI(ai, r);
+        if (aiCanAfford(ai, cost)) actions.push({ type:'research', r, cost });
+      }
+    });
+  }
+
+  if (p === 'conqueror' || p === 'researcher') {
+    // Chantier naval + flotte
+    if ((blds.shipyard||0) < 3) {
+      const b = BUILDINGS.find(x=>x.id==='shipyard');
+      const cost = getBuildingCostAI(b, blds.shipyard||0);
+      if (aiCanAfford(ai, cost)) actions.push({ type:'building', b, cost });
+    }
+    // Construire des chasseurs
+    const shipCost = { metal:800, crystal:300, energy:0 };
+    if ((blds.shipyard||0) >= 1 && aiCanAfford(ai, shipCost)) {
+      actions.push({ type:'ship', id:'fighter', name:'Chasseur', cost: shipCost, qty:1 });
+    }
+    // Croiseurs si possible
+    if ((blds.shipyard||0) >= 2 && (res.combustion||0) >= 1) {
+      const cruiserCost = { metal:5000, crystal:1800, energy:500 };
+      if (aiCanAfford(ai, cruiserCost)) {
+        actions.push({ type:'ship', id:'cruiser', name:'Croiseur', cost: cruiserCost, qty:1 });
+      }
+    }
+  }
+
+  // Recherche de colonisation pour l'expansionniste
+  if (p === 'expansionist') {
+    const r = RESEARCH.find(x=>x.id==='colonization');
+    const lv = res.colonization||0;
+    if (lv < 2 && aiMeetsReqs(ai, r.requires)) {
+      const cost = getResearchCostAI(ai, r);
+      if (aiCanAfford(ai, cost)) actions.push({ type:'research', r, cost });
+    }
+    // Construire colonisateur
+    if ((blds.shipyard||0) >= 2 && (fleet.colonizer||0) === 0) {
+      const colCost = { metal:2500, crystal:5000, energy:250 };
+      if (aiCanAfford(ai, colCost)) {
+        actions.push({ type:'ship', id:'colonizer', name:'Colonisateur', cost: colCost, qty:1 });
+      }
+    }
+  }
+
+  // Toujours investir mines de base (toutes IA)
+  ['mine_metal','mine_crystal'].forEach(id => {
+    const b = BUILDINGS.find(x=>x.id===id);
+    const lv = blds[id]||0;
+    if (lv < 5) {
+      const cost = getBuildingCostAI(b, lv);
+      if (aiCanAfford(ai, cost) && !actions.find(a=>a.b?.id===id)) {
+        actions.push({ type:'building', b, cost });
+      }
+    }
+  });
+
+  return actions.slice(0, 3); // max 3 actions par tour
+}
+
+function getBuildingCostAI(b, lv) {
+  return {
+    metal:   Math.floor(b.costBase.metal   * Math.pow(1.5, lv)),
+    crystal: Math.floor(b.costBase.crystal * Math.pow(1.5, lv)),
+    energy:  Math.floor(b.costBase.energy  * Math.pow(1.5, lv)),
+  };
+}
+
+function getResearchCostAI(ai, r) {
+  const lv = (ai.research||{})[r.id]||0;
+  return {
+    metal:   Math.floor(r.costBase.metal   * Math.pow(2, lv)),
+    crystal: Math.floor(r.costBase.crystal * Math.pow(2, lv)),
+    energy:  Math.floor(r.costBase.energy  * Math.pow(2, lv)),
+  };
+}
+
+// Traite le tour de toutes les IA
+async function processAITurns() {
+  const now = Date.now();
+  for (const profile of AI_PROFILES) {
+    try {
+      const ref = doc(db, 'players', profile.id);
+      const snap = await getDoc(ref);
+      if (!snap.exists()) continue;
+      const ai = snap.data();
+
+      // Vérifier si l'IA doit jouer ce tour
+      if (now < (ai.nextTurnTime||0)) continue;
+
+      // 1. Production
+      const prod = getAIProduction(ai);
+      ai.resources.metal   += prod.metal;
+      ai.resources.crystal += prod.crystal;
+      ai.resources.energy  += prod.energy;
+
+      // 2. Appliquer la file de construction (si elle existe)
+      (ai.planets||[]).forEach(planet => {
+        (planet.buildQueue||[]).forEach(item => {
+          if (item.type === 'building') {
+            planet.buildings[item.id] = (planet.buildings[item.id]||0) + 1;
+          } else if (item.type === 'research') {
+            ai.research[item.id] = (ai.research[item.id]||0) + 1;
+          } else if (item.type === 'ship') {
+            planet.fleet[item.id] = (planet.fleet[item.id]||0) + (item.qty||1);
+          }
+        });
+        planet.buildQueue = [];
+      });
+
+      // 3. Colonisation en cours
+      if (ai.pendingColonization) {
+        const pc = ai.pendingColonization;
+        const maxP = 1 + (ai.research?.colonization||0);
+        if (ai.planets.length < maxP) {
+          const usedCoords = ai.planets.map(p=>`${p.hexCol},${p.hexRow}`);
+          let col = pc.hexCol, row = pc.hexRow;
+          if (!col || usedCoords.includes(`${col},${row}`)) {
+            let tries=0;
+            do { col=Math.floor(Math.random()*9); row=Math.floor(Math.random()*9); tries++; }
+            while (usedCoords.includes(`${col},${row}`) && tries<50);
+          }
+          ai.planets.push({
+            ...makePlanet(pc.planetName, pc.emoji||null, pc.sector, false),
+            hexCol: col, hexRow: row,
+          });
+        }
+        ai.pendingColonization = null;
+      }
+
+      // 4. Décisions IA pour ce tour
+      const actions = aiDecide(ai);
+      const planet = ai.planets[0];
+      for (const action of actions) {
+        if (action.type === 'building') {
+          // Dépenser et mettre en file
+          ai.resources.metal   -= (action.cost.metal||0);
+          ai.resources.crystal -= (action.cost.crystal||0);
+          ai.resources.energy  -= (action.cost.energy||0);
+          planet.buildQueue.push({ type:'building', id:action.b.id, name:getBName(action.b) });
+        } else if (action.type === 'research') {
+          ai.resources.metal   -= (action.cost.metal||0);
+          ai.resources.crystal -= (action.cost.crystal||0);
+          ai.resources.energy  -= (action.cost.energy||0);
+          planet.buildQueue.push({ type:'research', id:action.r.id, name:getRName(action.r) });
+        } else if (action.type === 'ship') {
+          ai.resources.metal   -= (action.cost.metal||0);
+          ai.resources.crystal -= (action.cost.crystal||0);
+          ai.resources.energy  -= (action.cost.energy||0);
+          planet.buildQueue.push({ type:'ship', id:action.id, name:action.name, qty:action.qty||1 });
+        }
+      }
+
+      // 5. Colonisation — l'expansionniste envoie un colonisateur si disponible
+      if (ai.personality === 'expansionist' && !ai.pendingColonization) {
+        const maxP = 1 + (ai.research?.colonization||0);
+        if (ai.planets.length < maxP && (planet.fleet.colonizer||0) > 0) {
+          planet.fleet.colonizer--;
+          const names = ['Nova Kepler','Drift Station','Sigma Outpost','Vega II','Tau Colony','Rigel Base'];
+          const emojis = ['🪐','🌑','🟤','🔵','🔴','🌕'];
+          ai.pendingColonization = {
+            planetName: names[Math.floor(Math.random()*names.length)],
+            emoji: emojis[Math.floor(Math.random()*emojis.length)],
+            sector: Math.floor(Math.random()*9)+1,
+            hexCol: null, hexRow: null,
+          };
+        }
+      }
+
+      // 6. Combat — attaque un joueur humain si l'IA est assez forte (style agressif/mixte)
+      if (ai.personality === 'conqueror' || ai.personality === 'expansionist') {
+        const wB = 1 + (ai.research?.weapons||0)*0.25;
+        const totalAtt = (planet.fleet.fighter||0)*50*wB
+                       + (planet.fleet.cruiser||0)*200*wB
+                       + (planet.fleet.battleship||0)*1000*wB;
+        // Attaque seulement si flotte significative
+        if (totalAtt >= 500 && Math.random() < 0.4) {
+          try {
+            // Récupère les joueurs humains
+            const playersSnap = await getDocs(collection(db, 'players'));
+            const humans = [];
+            playersSnap.forEach(d => {
+              const data = d.data();
+              if (!data.isAI) humans.push({ ...data, uid: d.id });
+            });
+            if (humans.length > 0) {
+              const target = humans[Math.floor(Math.random()*humans.length)];
+              const defPow = calcPlayerDefensePower(target);
+              if (totalAtt * (0.8 + Math.random()*0.4) > defPow * (0.8 + Math.random()*0.4)) {
+                // Victoire IA
+                const loot = {
+                  metal:   Math.floor((target.resources?.metal||0)*0.15),
+                  crystal: Math.floor((target.resources?.crystal||0)*0.15),
+                };
+                ai.resources.metal   += loot.metal;
+                ai.resources.crystal += loot.crystal;
+                ai.combatWins = (ai.combatWins||0)+1;
+                // Notifier la cible dans son Firestore
+                const targetRef = doc(db, 'players', target.uid);
+                const targetSnap = await getDoc(targetRef);
+                if (targetSnap.exists()) {
+                  const tData = targetSnap.data();
+                  tData.resources.metal   = Math.max(0, (tData.resources.metal||0)   - loot.metal);
+                  tData.resources.crystal = Math.max(0, (tData.resources.crystal||0) - loot.crystal);
+                  if (!tData.log) tData.log = [];
+                  tData.log.unshift({ msg:`🔴 ATTAQUE IA — ${ai.commanderName} vous a attaqué ! −${loot.metal}🪨 −${loot.crystal}💎`, type:'defeat', turn: tData.turn||1 });
+                  if (tData.log.length > 50) tData.log = tData.log.slice(0,50);
+                  tData.score = 0; // sera recalculé au prochain tour du joueur
+                  await setDoc(targetRef, tData);
+                }
+              }
+            }
+          } catch(e) { console.error('AI combat error:', e); }
+        }
+      }
+
+      // 7. Mise à jour tour et score
+      ai.turn = (ai.turn||1) + 1;
+      ai.nextTurnTime = nextMidnight();
+      ai.lastSeen = Date.now();
+      ai.score = computeAIScore(ai);
+
+      await setDoc(ref, ai);
+    } catch(e) { console.error('processAITurns error:', profile.id, e); }
   }
 }
 
@@ -1806,6 +2204,7 @@ async function renderGalaxy() {
       <span style="display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:14px;height:14px;background:rgba(0,200,255,.4);border:2px solid var(--accent);border-radius:2px"></span> ${t('yourPlanet')}</span>
       <span style="display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:14px;height:14px;background:rgba(0,200,255,.15);border:2px solid rgba(0,200,255,.4);border-radius:2px"></span> ${t('yourColony')}</span>
       <span style="display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:14px;height:14px;background:rgba(255,107,53,.25);border:2px solid var(--accent2);border-radius:2px"></span> ${lang==='fr'?'Ennemi':'Enemy'}</span>
+      <span style="display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:14px;height:14px;background:rgba(180,100,255,.25);border:2px solid rgba(180,100,255,.7);border-radius:2px"></span> 🤖 IA</span>
       <span style="display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:14px;height:14px;background:rgba(255,255,255,.04);border:2px solid rgba(255,255,255,.1);border-radius:2px"></span> ${t('emptyHex')}</span>
     </div>
     <div style="position:relative;overflow:visible;padding:4px">
@@ -1847,13 +2246,13 @@ async function renderGalaxy() {
         emoji = cell.planet.emoji || '🌍';
         label = cell.planet.name;
       } else {
-        bg = 'rgba(255,107,53,.12)';
-        border = 'rgba(255,107,53,.5)';
+        // Ennemi humain ou IA
+        const isAI = cell.playerData?.isAI === true;
+        bg = isAI ? 'rgba(180,100,255,.12)' : 'rgba(255,107,53,.12)';
+        border = isAI ? 'rgba(180,100,255,.5)' : 'rgba(255,107,53,.5)';
         emoji = cell.planet.emoji || '🪐';
         label = cell.planet.name || '???';
         clickable = true;
-        const safeName = (cell.commander||'').replace(/'/g,"\\'");
-        const safePlanet = (cell.planet.name||'').replace(/'/g,"\\'");
         onclick = `window._showHexPopup(${col},${row},event)`;
       }
 
@@ -1943,11 +2342,15 @@ window._showHexPopup = (col, row, event) => {
   const content = document.getElementById('hex-popup-content');
   const p = cell.playerData || {};
   const defPow = calcPlayerDefensePower(p);
+  const isAI = p.isAI === true;
+  const aiBadge = isAI ? ' <span style="background:rgba(180,100,255,.3);color:#c084fc;font-size:.65rem;padding:1px 5px;border-radius:3px;font-family:monospace">🤖 IA</span>' : '';
   content.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:10px">
       <div>
-        <div style="font-family:'Orbitron',monospace;font-size:.8rem;color:var(--accent2)">${cell.planet.emoji} ${cell.planet.name||'???'}</div>
-        <div style="font-size:.78rem;color:var(--text2);margin-top:2px">${cell.commander} · 🛡️${fmt(defPow)}</div>
+        <div style="font-family:'Orbitron',monospace;font-size:.8rem;color:${isAI?'#c084fc':'var(--accent2)'}">
+          ${cell.planet.emoji} ${cell.planet.name||'???'}
+        </div>
+        <div style="font-size:.78rem;color:var(--text2);margin-top:2px">${cell.commander}${aiBadge} · 🛡️${fmt(defPow)}</div>
       </div>
       <button onclick="document.getElementById('hex-popup').style.display='none'" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:1rem;padding:0 0 0 8px">✕</button>
     </div>
@@ -2016,6 +2419,7 @@ async function renderRanking() {
       research: p.research || {},
       combatWins: p.combatWins || 0,
       isMe: false,
+      isAI: p.isAI === true,
     }))
   ];
 
@@ -2056,12 +2460,14 @@ async function renderRanking() {
     const rank = i + 1;
     const medal = medals[i] || `#${rank}`;
     const isMe = p.isMe;
+    const isAI = p.isAI === true;
     const bg = isMe ? 'rgba(0,200,255,.07)' : (i%2===0 ? 'transparent' : 'rgba(255,255,255,.02)');
-    const border = isMe ? 'border-left:3px solid var(--accent);' : 'border-left:3px solid transparent;';
-    const nameColor = isMe ? 'var(--accent)' : 'var(--text)';
+    const border = isMe ? 'border-left:3px solid var(--accent);' : isAI ? 'border-left:3px solid rgba(180,100,255,.6);' : 'border-left:3px solid transparent;';
+    const nameColor = isMe ? 'var(--accent)' : isAI ? '#c084fc' : 'var(--text)';
     const totalResearch = Object.values(p.research||{}).reduce((a,b)=>a+(b||0),0);
     const planetCount = (p.planets||[]).length;
     const mainPlanet = (p.planets||[])[0] || {};
+    const aiBadge = isAI ? '<span style="background:rgba(180,100,255,.25);color:#c084fc;font-size:.6rem;padding:1px 4px;border-radius:3px;margin-left:4px">🤖 IA</span>' : '';
 
     html += `<tr style="background:${bg};${border}transition:background .15s">
       <td style="padding:12px 12px;font-family:'Orbitron',monospace;font-size:.9rem;text-align:left">${medal}</td>
@@ -2069,7 +2475,7 @@ async function renderRanking() {
         <div style="display:flex;align-items:center;gap:10px">
           <span style="font-size:1.3rem">${mainPlanet.emoji||'🪐'}</span>
           <div>
-            <div style="font-family:'Orbitron',monospace;font-size:.78rem;color:${nameColor};font-weight:700">${p.commanderName}${isMe?' <span style="font-size:.65rem;color:var(--accent);opacity:.8">(vous)</span>':''}</div>
+            <div style="font-family:'Orbitron',monospace;font-size:.78rem;color:${nameColor};font-weight:700">${p.commanderName}${isMe?' <span style="font-size:.65rem;color:var(--accent);opacity:.8">(vous)</span>':''}${aiBadge}</div>
             <div style="font-size:.72rem;color:var(--text2);margin-top:2px">${mainPlanet.name||'???'}</div>
           </div>
         </div>
@@ -2660,6 +3066,7 @@ function showGameScreen() {
   setInterval(updateCountdown, 1000);
   updateCountdown();
   startPlayerListener();
+  initAIPlayers(); // Crée les IA si elles n'existent pas encore
 }
 function showSetup() {
   document.getElementById('auth-screen').style.display = 'none';
