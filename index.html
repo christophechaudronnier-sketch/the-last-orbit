@@ -520,7 +520,171 @@ async function loadGalaxy() {
   } catch(e) { return []; }
 }
 
-// ========== GAME LOGIC ==========
+// ========== SYSTÈME DE SAISONS ==========
+const ADMIN_UID = 'LruS5vdC5NUGjFff6VOiPxAXw3D3';
+let currentSeason = null;
+
+async function loadSeason() {
+  try {
+    const snap = await getDoc(doc(db, 'season', 'current'));
+    if (snap.exists()) {
+      currentSeason = snap.data();
+    } else {
+      // Première saison jamais créée
+      currentSeason = null;
+    }
+  } catch(e) { console.error('loadSeason error:', e); }
+}
+
+async function saveSeason(data) {
+  try {
+    await setDoc(doc(db, 'season', 'current'), data);
+    currentSeason = data;
+  } catch(e) { console.error('saveSeason error:', e); }
+}
+
+// Lance une nouvelle saison
+window._adminStartSeason = async () => {
+  if (!currentUser || currentUser.uid !== ADMIN_UID) return;
+  const number = currentSeason ? (currentSeason.number||1) + 1 : 1;
+  const startDate = Date.now();
+  const endDate = startDate + 90 * 24 * 60 * 60 * 1000;
+  await saveSeason({ number, startDate, endDate, status: 'active' });
+  notify(`🚀 Saison ${number} lancée ! Elle se termine dans 90 jours.`);
+  updateSeasonUI();
+};
+
+// Termine la saison en cours et archive le podium
+window._adminEndSeason = async () => {
+  if (!currentUser || currentUser.uid !== ADMIN_UID) return;
+  if (!currentSeason || currentSeason.status !== 'active') {
+    notify('Aucune saison active.', true); return;
+  }
+  // Récupérer tous les joueurs pour le podium
+  const players = await loadGalaxy();
+  const myScore = G.score !== undefined ? G.score : computeScore();
+  const allPlayers = [
+    { commanderName: G.commanderName, score: myScore, isAI: false },
+    ...players.map(p => ({ commanderName: p.commanderName||'???', score: p.score||0, isAI: p.isAI===true }))
+  ];
+  allPlayers.sort((a, b) => b.score - a.score);
+  const podium = allPlayers.slice(0, 3).map((p, i) => ({
+    rank: i+1, commanderName: p.commanderName, score: p.score, isAI: p.isAI
+  }));
+
+  // Archiver dans le hall of fame
+  try {
+    const hofSnap = await getDoc(doc(db, 'season', 'hall_of_fame'));
+    const hof = hofSnap.exists() ? hofSnap.data() : { seasons: [] };
+    hof.seasons.push({
+      number: currentSeason.number,
+      startDate: currentSeason.startDate,
+      endDate: Date.now(),
+      podium,
+    });
+    await setDoc(doc(db, 'season', 'hall_of_fame'), hof);
+  } catch(e) { console.error('HoF error:', e); }
+
+  // Marquer la saison comme terminée
+  await saveSeason({ ...currentSeason, status: 'ended', endDate: Date.now() });
+  notify(`🏁 Saison ${currentSeason.number} terminée ! Podium archivé.`);
+  updateSeasonUI();
+};
+
+// Reset tous les joueurs humains pour une nouvelle saison
+window._adminResetPlayers = async () => {
+  if (!currentUser || currentUser.uid !== ADMIN_UID) return;
+  if (!confirm('⚠️ Reset TOUS les joueurs humains ? Cette action est irréversible.')) return;
+
+  try {
+    const snap = await getDocs(collection(db, 'players'));
+    const batch = [];
+    snap.forEach(d => {
+      const data = d.data();
+      if (!data.isAI) batch.push({ id: d.id, data });
+    });
+
+    for (const { id, data } of batch) {
+      const resetData = {
+        ...data,
+        turn: 1,
+        nextTurnTime: nextMidnight(),
+        resources: { metal: 3000, crystal: 1000, energy: 200 },
+        research: { combustion:0, weapons:0, shields:0, espionage:0, hyperdrive:0, colonization:0 },
+        planets: [{
+          ...data.planets[0],
+          buildings: { mine_metal:0, mine_crystal:0, power_plant:0, shipyard:0, research_lab:0, spaceport:0 },
+          fleet: { fighter:0, cruiser:0, battleship:0, colonizer:0 },
+          defense: { shields:0, cannons:0, rockets:0 },
+          buildQueue: [],
+        }],
+        activeMissions: [],
+        pendingColonization: null,
+        log: [],
+        score: 0,
+        combatWins: 0,
+      };
+      // Garder seulement la planète principale
+      resetData.planets = [resetData.planets[0]];
+      await setDoc(doc(db, 'players', id), resetData);
+    }
+
+    // Reset les IA aussi
+    for (let i = 0; i < AI_PROFILES.length; i++) {
+      const profile = AI_PROFILES[i];
+      const aiData = makeAIGame(profile, i);
+      await setDoc(doc(db, 'players', profile.id), aiData);
+    }
+
+    // Reset notre propre G local
+    const myPlanet = G.planets[0];
+    G.turn = 1;
+    G.nextTurnTime = nextMidnight();
+    G.resources = { metal: 3000, crystal: 1000, energy: 200 };
+    G.research = { combustion:0, weapons:0, shields:0, espionage:0, hyperdrive:0, colonization:0 };
+    G.planets = [{
+      ...myPlanet,
+      buildings: { mine_metal:0, mine_crystal:0, power_plant:0, shipyard:0, research_lab:0, spaceport:0 },
+      fleet: { fighter:0, cruiser:0, battleship:0, colonizer:0 },
+      defense: { shields:0, cannons:0, rockets:0 },
+      buildQueue: [],
+    }];
+    G.activeMissions = [];
+    G.pendingColonization = null;
+    G.log = [];
+    G.score = 0;
+    G.combatWins = 0;
+    await saveGame();
+
+    notify('✅ Reset terminé ! Tous les joueurs repartent de zéro.');
+    updateUI();
+  } catch(e) { console.error('Reset error:', e); notify('Erreur lors du reset.', true); }
+};
+
+// Met à jour l'affichage de la saison dans le header
+function updateSeasonUI() {
+  const el = document.getElementById('season-display');
+  if (!el) return;
+  if (!currentSeason) {
+    el.innerHTML = `<span style="color:var(--text2);font-size:.7rem">Aucune saison active</span>`;
+    return;
+  }
+  if (currentSeason.status === 'ended') {
+    el.innerHTML = `<span style="color:var(--text2);font-size:.7rem">⏸ Saison ${currentSeason.number} terminée</span>`;
+    return;
+  }
+  const remaining = Math.max(0, currentSeason.endDate - Date.now());
+  const days = Math.floor(remaining / (24*60*60*1000));
+  const hours = Math.floor((remaining % (24*60*60*1000)) / (60*60*1000));
+  const color = days <= 7 ? 'var(--accent2)' : 'var(--accent3)';
+  el.innerHTML = `
+    <div style="font-size:.65rem;color:var(--text2);letter-spacing:1px">SAISON ${currentSeason.number}</div>
+    <div style="font-family:'Orbitron',monospace;font-size:.8rem;color:${color};font-weight:700">
+      ${days}j ${hours}h restants
+    </div>`;
+}
+
+
 function makePlanet(name, emoji, sector, isMain=true) {
   const emojis = ['🪐','🌍','🌑','🌕','🔴','🟤','🔵'];
   return {
@@ -2560,6 +2724,66 @@ async function renderRanking() {
       </div>
     </div>`;
 
+  // ── Hall of Fame ──
+  try {
+    const hofSnap = await getDoc(doc(db, 'season', 'hall_of_fame'));
+    if (hofSnap.exists()) {
+      const hof = hofSnap.data();
+      const seasons = (hof.seasons||[]).slice().reverse(); // plus récente en premier
+      if (seasons.length > 0) {
+        const medalEmoji = ['🥇','🥈','🥉'];
+        html += `
+          <div style="margin-top:28px;padding:20px;background:var(--panel);border:1px solid rgba(255,215,0,.3);border-radius:6px">
+            <div style="font-family:'Orbitron',monospace;font-size:.72rem;color:rgba(255,215,0,.8);letter-spacing:2px;margin-bottom:16px">🏛️ HALL OF FAME</div>
+            ${seasons.map(s => {
+              const start = new Date(s.startDate).toLocaleDateString('fr-FR');
+              const end   = new Date(s.endDate).toLocaleDateString('fr-FR');
+              return `
+                <div style="margin-bottom:16px;padding:14px;background:rgba(255,215,0,.04);border:1px solid rgba(255,215,0,.15);border-radius:4px">
+                  <div style="font-family:'Orbitron',monospace;font-size:.75rem;color:rgba(255,215,0,.7);margin-bottom:10px">
+                    SAISON ${s.number} — ${start} → ${end}
+                  </div>
+                  ${(s.podium||[]).map(p => {
+                    const aiBadge = p.isAI ? '<span style="background:rgba(180,100,255,.25);color:#c084fc;font-size:.6rem;padding:1px 4px;border-radius:3px;margin-left:4px">🤖</span>' : '';
+                    return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05)">
+                      <span style="font-size:1.1rem">${medalEmoji[p.rank-1]||p.rank}</span>
+                      <span style="font-family:'Orbitron',monospace;font-size:.8rem;color:var(--text)">${p.commanderName}${aiBadge}</span>
+                      <span style="margin-left:auto;font-family:'Orbitron',monospace;font-size:.8rem;color:#FFD700">${fmt(p.score)}</span>
+                    </div>`;
+                  }).join('')}
+                </div>`;
+            }).join('')}
+          </div>`;
+      }
+    }
+  } catch(e) { /* pas de HoF encore */ }
+
+  // ── Panneau Admin (visible uniquement pour l'admin) ──
+  if (currentUser && currentUser.uid === ADMIN_UID) {
+    const seasonStatus = currentSeason ? currentSeason.status : 'none';
+    const seasonNum = currentSeason ? currentSeason.number : 0;
+    html += `
+      <div style="margin-top:28px;padding:20px;background:rgba(255,40,40,.06);border:2px solid rgba(255,40,40,.3);border-radius:6px">
+        <div style="font-family:'Orbitron',monospace;font-size:.72rem;color:rgba(255,80,80,.9);letter-spacing:2px;margin-bottom:16px">⚙️ PANNEAU ADMIN</div>
+        <div style="font-size:.82rem;color:var(--text2);margin-bottom:16px">
+          Saison actuelle : <strong style="color:var(--text)">${seasonStatus === 'active' ? `Saison ${seasonNum} — active` : seasonStatus === 'ended' ? `Saison ${seasonNum} — terminée` : 'Aucune saison'}</strong>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          ${seasonStatus !== 'active' ? `
+            <button class="btn" onclick="window._adminStartSeason()" style="background:rgba(0,200,100,.15);border-color:rgba(0,200,100,.5);color:#4ade80">
+              🚀 Lancer la saison ${seasonNum+1}
+            </button>` : ''}
+          ${seasonStatus === 'active' ? `
+            <button class="btn" onclick="window._adminEndSeason()" style="background:rgba(255,165,0,.15);border-color:rgba(255,165,0,.5);color:#fb923c">
+              🏁 Terminer la saison ${seasonNum}
+            </button>` : ''}
+          <button class="btn" onclick="window._adminResetPlayers()" style="background:rgba(255,40,40,.15);border-color:rgba(255,40,40,.5);color:#f87171">
+            ⚠️ Reset tous les joueurs
+          </button>
+        </div>
+      </div>`;
+  }
+
   el.innerHTML = html;
 }
 
@@ -3103,9 +3327,11 @@ function showGameScreen() {
   updateUI();
   showPage('overview');
   setInterval(updateCountdown, 1000);
+  setInterval(updateSeasonUI, 60000);
   updateCountdown();
   startPlayerListener();
-  initAIPlayers(); // Crée les IA si elles n'existent pas encore
+  initAIPlayers();
+  loadSeason().then(() => updateSeasonUI());
 }
 function showSetup() {
   document.getElementById('auth-screen').style.display = 'none';
@@ -3407,6 +3633,9 @@ window._notify = notify;
     <div class="turn-info">
       <div class="turn-label" data-tkey="turnLabel">TOUR EN COURS</div>
       <div class="turn-number" id="turn-display">Tour 1</div>
+    </div>
+    <div id="season-display" style="text-align:center;padding:4px 12px;background:rgba(255,255,255,.03);border-radius:4px;border:1px solid var(--border)">
+      <span style="color:var(--text2);font-size:.7rem">Chargement...</span>
     </div>
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
       <div class="next-turn-box">
