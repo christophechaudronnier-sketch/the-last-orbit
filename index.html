@@ -898,10 +898,12 @@ async function processIncomingAttacks() {
       const r = atk.result;
       const fmtLocal = (n) => n >= 1000 ? (n/1000).toFixed(1)+'k' : String(n);
 
-      for (const [type, lost] of Object.entries(r.atkLosses||{})) {
-        // Retire les pertes de la planète principale
-        const mp = G.planets[0];
-        if (mp.fleet[type] !== undefined) mp.fleet[type] = Math.max(0, mp.fleet[type] - lost);
+      // Remettre les survivants dans la flotte (vaisseaux envoyés - pertes)
+      const mp = G.planets[0];
+      for (const [type, sent] of Object.entries(atk.fleet||{})) {
+        const lost = (r.atkLosses||{})[type] || 0;
+        const survivors = Math.max(0, sent - lost);
+        if (mp.fleet[type] !== undefined) mp.fleet[type] = (mp.fleet[type]||0) + survivors;
       }
       if (r.victory) {
         G.resources.metal   += r.loot?.metal  || 0;
@@ -1003,6 +1005,14 @@ window._confirmAttack = async () => {
       status: 'pending',
       createdAt: Date.now(),
     });
+    // Déduire les vaisseaux envoyés de la flotte
+    const mp = G.planets[0];
+    for (const [type, qty] of Object.entries(window._attackFleet)) {
+      if (qty > 0 && mp.fleet[type] !== undefined) {
+        mp.fleet[type] = Math.max(0, mp.fleet[type] - qty);
+      }
+    }
+    await saveGame();
     notify(`🚀 ${lang==='fr'?'Escadron envoyé vers':'Squadron sent to'} ${window._attackTarget.planet} !`);
     document.getElementById('attack-modal').style.display = 'none';
   } catch(e) { notify(lang==='fr'?'Erreur d\'envoi':'Send error', true); }
