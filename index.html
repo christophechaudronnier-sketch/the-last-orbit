@@ -822,21 +822,20 @@ async function initAIPlayers() {
     try {
       const ref = doc(db, 'players', profile.id);
       const snap = await getDoc(ref);
+      const fixed = AI_FIXED_COORDS[i];
       if (!snap.exists()) {
         const aiData = makeAIGame(profile, i);
         await setDoc(ref, aiData);
         console.log('IA créée:', profile.commanderName);
       } else {
-        // Corriger les coords si elles sont nulles ou aléatoires (migration)
+        // Toujours forcer les coords fixes (corrige les anciennes coords aléatoires)
         const data = snap.data();
         const planet = data.planets && data.planets[0];
-        const fixed = AI_FIXED_COORDS[i];
-        if (planet && (planet.hexCol === null || planet.hexCol === undefined ||
-            planet.hexRow === null || planet.hexRow === undefined)) {
+        if (planet && (planet.hexCol !== fixed.col || planet.hexRow !== fixed.row)) {
           data.planets[0].hexCol = fixed.col;
           data.planets[0].hexRow = fixed.row;
           await setDoc(ref, data);
-          console.log('IA coords corrigées:', profile.commanderName);
+          console.log('IA coords mises à jour:', profile.commanderName, fixed);
         }
       }
     } catch(e) { console.error('initAI error:', profile.id, e); }
@@ -2163,24 +2162,7 @@ async function renderGalaxy() {
     return { col: Math.abs(hash) % cols, row: Math.abs(hash >> 4) % rows };
   }
 
-  // Nos propres planètes
-  let ownNeedsSave = false;
-  (G.planets||[]).forEach((p, i) => {
-    if (p.hexCol === null || p.hexCol === undefined || p.hexRow === null || p.hexRow === undefined) {
-      const coords = uidToCoords(currentUser.uid, i, cellMap, COLS, ROWS);
-      p.hexCol = coords.col; p.hexRow = coords.row;
-      ownNeedsSave = true;
-    }
-    cellMap[`${p.hexCol},${p.hexRow}`] = {
-      type: i === 0 ? 'own_main' : 'own_colony',
-      planet: p,
-      commander: G.commanderName,
-      uid: null,
-    };
-  });
-  if (ownNeedsSave) await saveGame();
-
-  // Planètes des autres joueurs — les IA en premier (coords fixes garanties)
+  // 1. Placer les IA EN PREMIER (coords fixes, priorité absolue)
   const sortedPlayers = [...players].sort((a, b) => {
     if (a.isAI && !b.isAI) return -1;
     if (!a.isAI && b.isAI) return 1;
@@ -2192,12 +2174,11 @@ async function renderGalaxy() {
     planets.forEach((pl, i) => {
       let col = pl.hexCol ?? null;
       let row = pl.hexRow ?? null;
-      // Si pas de coords valides, calculer de façon déterministe à partir de l'UID
       if (col === null || row === null || col === undefined || row === undefined) {
         const coords = uidToCoords(p.uid || p.commanderName || 'unknown', i, cellMap, COLS, ROWS);
         col = coords.col; row = coords.row;
       }
-      // Si collision avec une case déjà occupée, trouver la case libre la plus proche
+      // Collision : trouver la case libre la plus proche (déterministe)
       if (cellMap[`${col},${row}`]) {
         let found = false;
         for (let dist = 1; dist < 9 && !found; dist++) {
@@ -2206,9 +2187,7 @@ async function renderGalaxy() {
               if (Math.abs(dc) !== dist && Math.abs(dr) !== dist) continue;
               const nc = (col + dc + COLS) % COLS;
               const nr = (row + dr + ROWS) % ROWS;
-              if (!cellMap[`${nc},${nr}`]) {
-                col = nc; row = nr; found = true;
-              }
+              if (!cellMap[`${nc},${nr}`]) { col = nc; row = nr; found = true; }
             }
           }
         }
@@ -2222,6 +2201,24 @@ async function renderGalaxy() {
       };
     });
   }
+
+  // 2. Nos propres planètes (après les IA)
+  let ownNeedsSave = false;
+  (G.planets||[]).forEach((p, i) => {
+    // Si nos coords entrent en collision avec une case occupée (IA ou autre)
+    if (p.hexCol === null || p.hexCol === undefined || p.hexRow === null || p.hexRow === undefined || cellMap[`${p.hexCol},${p.hexRow}`]) {
+      const coords = uidToCoords(currentUser.uid, i, cellMap, COLS, ROWS);
+      p.hexCol = coords.col; p.hexRow = coords.row;
+      ownNeedsSave = true;
+    }
+    cellMap[`${p.hexCol},${p.hexRow}`] = {
+      type: i === 0 ? 'own_main' : 'own_colony',
+      planet: p,
+      commander: G.commanderName,
+      uid: null,
+    };
+  });
+  if (ownNeedsSave) await saveGame();
 
   // Taille des hexagones calculée dynamiquement pour tenir dans la page sans scrollbar
   // La zone utile = largeur de la fenêtre - largeur nav (~220px) - marges (~40px)
