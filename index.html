@@ -1520,7 +1520,8 @@ function showCombatReport(report, isAttacker, opponentName, opponentPlanet) {
   modal.style.display = 'flex';
 }
 
-
+// Traite toutes les attaques au passage de tour
+async function processIncomingAttacks() {
   if (!currentUser) return;
   try {
     // Attaques REÇUES par ce joueur
