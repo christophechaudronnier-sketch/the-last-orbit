@@ -842,6 +842,29 @@ function nextMidnight() {
   d.setHours(24, 0, 0, 0);
   return d.getTime();
 }
+
+// Retourne le timestamp du prochain minuit à partir d'un timestamp donné
+function nextMidnightAfter(ts) {
+  const d = new Date(ts);
+  d.setHours(24, 0, 0, 0);
+  return d.getTime();
+}
+
+// Calcule combien de tours se sont écoulés depuis nextTurnTime
+function countMissedTurns() {
+  const now = Date.now();
+  if (now < G.nextTurnTime) return 0;
+  // Chaque tour = 1 jour (minuit à minuit)
+  // On remonte depuis nextTurnTime en ajoutant des jours
+  let count = 0;
+  let t = G.nextTurnTime;
+  while (t <= now && count < 30) { // max 30 tours de rattrapage
+    count++;
+    t = nextMidnightAfter(t);
+  }
+  return count;
+}
+
 let _processingTurn = false;
 async function processTurn() {
   const now = Date.now();
@@ -849,69 +872,94 @@ async function processTurn() {
   if (_processingTurn) return;
   _processingTurn = true;
   try {
-  const prod = getProduction();
-  G.resources.metal += prod.metal;
-  G.resources.crystal += prod.crystal;
-  G.resources.energy += prod.energy;
+    const missedTurns = countMissedTurns();
+    if (missedTurns === 0) return;
 
-  // Traiter les files de construction de chaque planète
-  (G.planets||[]).forEach((planet, idx) => {
-    const queue = planet.buildQueue||[];
-    for (const item of queue) {
-      if (item.type === 'building') {
-        planet.buildings[item.id] = (planet.buildings[item.id]||0) + 1;
-        const planetLabel = idx===0 ? '' : ` (${planet.name})`;
-        addLog(`✅ ${item.name} ${t('level')}${planet.buildings[item.id]}${planetLabel}`, 'info');
-      } else if (item.type === 'research') {
-        G.research[item.id] = (G.research[item.id]||0) + 1;
-        addLog(`✅ ${item.name} ${t('level')}${G.research[item.id]}`, 'info');
-      } else if (item.type === 'ship') {
-        planet.fleet[item.id] = (planet.fleet[item.id]||0) + item.qty;
-        const planetLabel = idx===0 ? '' : ` (${planet.name})`;
-        addLog(`✅ ${item.qty}x ${item.name}${planetLabel}`, 'info');
-      } else if (item.type === 'defense') {
-        if (!planet.defense) planet.defense = {};
-        planet.defense[item.id] = (planet.defense[item.id]||0) + item.qty;
-        const planetLabel = idx===0 ? '' : ` (${planet.name})`;
-        addLog(`✅ ${item.qty}x ${item.name}${planetLabel}`, 'info');
+    // Pour chaque tour manqué, appliquer la production et les constructions
+    for (let i = 0; i < missedTurns; i++) {
+      const isLastTurn = (i === missedTurns - 1);
+      const prod = getProduction();
+      G.resources.metal   += prod.metal;
+      G.resources.crystal += prod.crystal;
+      G.resources.energy  += prod.energy;
+
+      // Traiter les files de construction de chaque planète
+      // On n'applique les constructions qu'une seule fois (au premier tour),
+      // car la file ne peut être remplie qu'une fois entre deux connexions
+      if (i === 0) {
+        (G.planets||[]).forEach((planet, idx) => {
+          const queue = planet.buildQueue||[];
+          for (const item of queue) {
+            if (item.type === 'building') {
+              planet.buildings[item.id] = (planet.buildings[item.id]||0) + 1;
+              const planetLabel = idx===0 ? '' : ` (${planet.name})`;
+              addLog(`✅ ${item.name} ${t('level')}${planet.buildings[item.id]}${planetLabel}`, 'info');
+            } else if (item.type === 'research') {
+              G.research[item.id] = (G.research[item.id]||0) + 1;
+              addLog(`✅ ${item.name} ${t('level')}${G.research[item.id]}`, 'info');
+            } else if (item.type === 'ship') {
+              planet.fleet[item.id] = (planet.fleet[item.id]||0) + item.qty;
+              const planetLabel = idx===0 ? '' : ` (${planet.name})`;
+              addLog(`✅ ${item.qty}x ${item.name}${planetLabel}`, 'info');
+            } else if (item.type === 'defense') {
+              if (!planet.defense) planet.defense = {};
+              planet.defense[item.id] = (planet.defense[item.id]||0) + item.qty;
+              const planetLabel = idx===0 ? '' : ` (${planet.name})`;
+              addLog(`✅ ${item.qty}x ${item.name}${planetLabel}`, 'info');
+            }
+          }
+          planet.buildQueue = [];
+        });
+
+        // Colonisation en cours
+        if (G.pendingColonization) {
+          const pc = G.pendingColonization;
+          if (G.planets.length < maxPlanets()) {
+            const emojis = ['🪐','🌍','🌑','🌕','🔴','🟤','🔵'];
+            const newPlanet = {
+              ...makePlanet(pc.planetName, emojis[Math.floor(Math.random()*emojis.length)], pc.sector, false),
+              hexCol: pc.hexCol !== undefined ? pc.hexCol : Math.floor(Math.random()*9),
+              hexRow: pc.hexRow !== undefined ? pc.hexRow : Math.floor(Math.random()*9),
+            };
+            G.planets.push(newPlanet);
+            addLog(`${t('colonizeSuccess')} ${pc.planetName} (Secteur ${pc.sector})`, 'victory');
+          }
+          G.pendingColonization = null;
+        }
+
+        // Missions actives
+        for (const m of G.activeMissions) processMissionResult(m);
+        G.activeMissions = [];
+      }
+
+      G.turn++;
+      // Log uniquement pour le dernier tour (évite de spammer le journal)
+      if (isLastTurn) {
+        const msg = missedTurns > 1
+          ? `🌅 ${lang==='fr'?'Rattrapage':'Catch-up'} ${missedTurns} ${lang==='fr'?'tours':'turns'} — +${prod.metal * missedTurns}🪨 +${prod.crystal * missedTurns}💎 +${prod.energy * missedTurns}⚡`
+          : `🌅 ${lang==='fr'?'Tour':'Turn'} ${G.turn} — +${prod.metal}🪨 +${prod.crystal}💎 +${prod.energy}⚡`;
+        addLog(msg, 'info');
       }
     }
-    planet.buildQueue = [];
-  });
 
-  // Traiter la colonisation en cours
-  if (G.pendingColonization) {
-    const pc = G.pendingColonization;
-    if (G.planets.length < maxPlanets()) {
-      const emojis = ['🪐','🌍','🌑','🌕','🔴','🟤','🔵'];
-      const newPlanet = {
-        ...makePlanet(pc.planetName, emojis[Math.floor(Math.random()*emojis.length)], pc.sector, false),
-        hexCol: pc.hexCol !== undefined ? pc.hexCol : Math.floor(Math.random()*9),
-        hexRow: pc.hexRow !== undefined ? pc.hexRow : Math.floor(Math.random()*9),
-      };
-      G.planets.push(newPlanet);
-      addLog(`${t('colonizeSuccess')} ${pc.planetName} (Secteur ${pc.sector})`, 'victory');
+    // Traitement des combats multijoueur (une seule fois après tous les tours)
+    await processIncomingAttacks();
+
+    // Traitement des tours IA (une seule fois)
+    await processAITurns();
+
+    // Avancer nextTurnTime jusqu'au prochain minuit futur
+    G.nextTurnTime = nextMidnight();
+    G.lastSeen = Date.now();
+    G.score = computeScore();
+    await saveGame();
+
+    if (missedTurns > 1) {
+      notify(lang==='fr' ? `⏩ ${missedTurns} tours rattrapés !` : `⏩ ${missedTurns} turns caught up!`);
+    } else {
+      notify(t('turnStarted'));
     }
-    G.pendingColonization = null;
-  }
-
-  for (const m of G.activeMissions) processMissionResult(m);
-  G.activeMissions = [];
-
-  // Traitement des combats multijoueur
-  await processIncomingAttacks();
-
-  // Traitement des tours IA
-  await processAITurns();
-
-  G.turn++;
-  G.nextTurnTime = nextMidnight();
-  G.lastSeen = Date.now();
-  G.score = computeScore();
-  addLog(`🌅 ${lang==='fr'?'Tour':'Turn'} ${G.turn} — +${prod.metal}🪨 +${prod.crystal}💎 +${prod.energy}⚡`, 'info');
-  await saveGame();
-  notify(t('turnStarted'));
-  updateUI();
+    updateUI();
   } catch(e) {
     console.error('processTurn error:', e);
     notify(lang==='fr'?'Erreur lors du traitement du tour.':'Error processing turn.', true);
