@@ -1468,8 +1468,59 @@ function resolveCombat(attackerFleet, attackerResearch, defenderData) {
   return { victory, atkPower: Math.floor(atkRoll), defPower: Math.floor(defRoll), atkLosses, defLosses, defLosesDefenses, loot };
 }
 
-// Traite toutes les attaques au passage de tour
-async function processIncomingAttacks() {
+// Affiche la modale de rapport de combat
+function showCombatReport(report, isAttacker, opponentName, opponentPlanet) {
+  const modal = document.getElementById('combat-report-modal');
+  if (!modal) return;
+
+  const victory = isAttacker ? report.victory : !report.victory;
+  const outcomeEl = document.getElementById('combat-report-outcome');
+  outcomeEl.textContent = victory
+    ? (lang==='fr' ? '🟢 VICTOIRE' : '🟢 VICTORY')
+    : (lang==='fr' ? '🔴 DÉFAITE'  : '🔴 DEFEAT');
+  outcomeEl.style.color = victory ? 'var(--accent3)' : 'var(--danger)';
+
+  const subtitle = document.getElementById('combat-report-subtitle');
+  const role = isAttacker
+    ? (lang==='fr' ? `Attaque contre ${opponentPlanet} (${opponentName})` : `Attack on ${opponentPlanet} (${opponentName})`)
+    : (lang==='fr' ? `Défense contre ${opponentPlanet} (${opponentName})` : `Defense against ${opponentPlanet} (${opponentName})`);
+  subtitle.textContent = role;
+
+  const fmt = n => n >= 1000 ? (n/1000).toFixed(1)+'k' : String(n);
+  document.getElementById('combat-report-atkpower').textContent = fmt(report.atkPower||0);
+  document.getElementById('combat-report-defpower').textContent = fmt(report.defPower||0);
+
+  // Butin
+  const lootDiv = document.getElementById('combat-report-loot');
+  const lootMetal   = (report.loot?.metal  || 0);
+  const lootCrystal = (report.loot?.crystal || 0);
+  if (isAttacker && report.victory && (lootMetal > 0 || lootCrystal > 0)) {
+    lootDiv.style.display = 'block';
+    document.getElementById('combat-report-loot-values').textContent =
+      `+${fmt(lootMetal)} 🪨  +${fmt(lootCrystal)} 💎`;
+  } else {
+    lootDiv.style.display = 'none';
+  }
+
+  // Pertes
+  const lossesEl = document.getElementById('combat-report-losses');
+  const losses = isAttacker ? (report.atkLosses||{}) : (report.defLosses||{});
+  const SHIP_LABELS = { fighter: lang==='fr'?'Chasseurs':'Fighters', cruiser: lang==='fr'?'Croiseurs':'Cruisers', battleship: lang==='fr'?'Cuirassés':'Battleships', colonizer: lang==='fr'?'Colonisateurs':'Colonizers' };
+  const lossLines = Object.entries(losses).filter(([,v])=>v>0).map(([k,v])=>`<span style="color:var(--danger)">−${v}</span> ${SHIP_LABELS[k]||k}`);
+  if (!isAttacker && report.defLosesDefenses) {
+    const DEF_LABELS = { shields: lang==='fr'?'Boucliers':'Shields', cannons: lang==='fr'?'Canons':'Cannons', rockets: lang==='fr'?'Roquettes':'Rockets' };
+    Object.entries(report.defLosesDefenses||{}).filter(([,v])=>v>0).forEach(([k,v])=>{
+      lossLines.push(`<span style="color:var(--danger)">−${v}</span> ${DEF_LABELS[k]||k}`);
+    });
+  }
+  lossesEl.innerHTML = lossLines.length > 0
+    ? lossLines.join('<br>')
+    : `<span style="color:var(--accent3)">${lang==='fr'?'Aucune perte':'No losses'} ✓</span>`;
+
+  modal.style.display = 'flex';
+}
+
+
   if (!currentUser) return;
   try {
     // Attaques REÇUES par ce joueur
@@ -1504,6 +1555,9 @@ async function processIncomingAttacks() {
       const defLossMsg = [...Object.entries(report.defLosses), ...Object.entries(report.defLosesDefenses||{})].filter(([,v])=>v>0).map(([k,v])=>`-${v} ${k}`).join(' ');
       addLog(`${outcomeLabel} — ${atk.attackerName} (${atk.attackerPlanet}) ⚔️${fmtLocal(report.atkPower)} vs 🛡️${fmtLocal(report.defPower)}${lootMsg}${defLossMsg?' | pertes: '+defLossMsg:''}`, report.victory ? 'defeat' : 'victory');
 
+      // Afficher le rapport de combat pour le défenseur
+      showCombatReport(report, false, atk.attackerName, atk.attackerPlanet);
+
       await updateDoc(doc(db, 'attacks', attackSnap.id), {
         status: 'resolved',
         result: { victory: report.victory, atkPower: report.atkPower, defPower: report.defPower, atkLosses: report.atkLosses, defLosses: report.defLosses, loot: report.loot }
@@ -1537,6 +1591,9 @@ async function processIncomingAttacks() {
       const lootMsg = r.victory ? ` — +${fmtLocal(r.loot?.metal||0)}🪨 +${fmtLocal(r.loot?.crystal||0)}💎` : '';
       const atkLossMsg = Object.entries(r.atkLosses||{}).filter(([,v])=>v>0).map(([k,v])=>`-${v} ${k}`).join(' ');
       addLog(`${outcomeLabel} vs ${atk.targetName} (${atk.targetPlanet}) ⚔️${fmtLocal(r.atkPower)} vs 🛡️${fmtLocal(r.defPower)}${lootMsg}${atkLossMsg?' | pertes: '+atkLossMsg:''}`, r.victory ? 'victory' : 'defeat');
+
+      // Afficher le rapport de combat pour l'attaquant
+      showCombatReport(r, true, atk.targetName, atk.targetPlanet);
 
       await deleteDoc(doc(db, 'attacks', attackSnap.id));
     }
@@ -3884,6 +3941,35 @@ window._notify = notify;
       <button class="btn" style="border-color:var(--border);color:var(--text2)" onclick="window._closeColonizeModal()">ANNULER</button>
       <button class="btn" style="border-color:var(--accent3);color:var(--accent3);background:rgba(127,255,107,.08)" onclick="window._confirmColonize()">🚀 ENVOYER LE COLONISATEUR</button>
     </div>
+  </div>
+</div>
+
+<!-- COMBAT REPORT MODAL -->
+<div id="combat-report-modal" style="display:none;position:fixed;inset:0;z-index:400;align-items:center;justify-content:center;background:rgba(0,0,0,.82)">
+  <div style="background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:32px;width:500px;max-width:96vw;box-shadow:0 0 60px rgba(255,107,53,.25);max-height:90vh;overflow-y:auto">
+    <div id="combat-report-header" style="text-align:center;margin-bottom:24px">
+      <div id="combat-report-outcome" style="font-family:'Orbitron',monospace;font-size:1.4rem;font-weight:900;letter-spacing:4px;margin-bottom:6px"></div>
+      <div id="combat-report-subtitle" style="font-size:.82rem;color:var(--text2);letter-spacing:2px">RAPPORT DE COMBAT</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">
+      <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:6px;padding:14px;text-align:center">
+        <div style="font-size:.7rem;color:var(--text2);letter-spacing:1px;margin-bottom:6px">⚔️ PUISSANCE ATTAQUE</div>
+        <div id="combat-report-atkpower" style="font-family:'Orbitron',monospace;font-size:1.1rem;color:var(--accent2);font-weight:700"></div>
+      </div>
+      <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:6px;padding:14px;text-align:center">
+        <div style="font-size:.7rem;color:var(--text2);letter-spacing:1px;margin-bottom:6px">🛡️ PUISSANCE DÉFENSE</div>
+        <div id="combat-report-defpower" style="font-family:'Orbitron',monospace;font-size:1.1rem;color:var(--crystal);font-weight:700"></div>
+      </div>
+    </div>
+    <div id="combat-report-loot" style="display:none;background:rgba(127,255,107,.06);border:1px solid rgba(127,255,107,.2);border-radius:6px;padding:14px;margin-bottom:16px;text-align:center">
+      <div style="font-size:.7rem;color:var(--accent3);letter-spacing:1px;margin-bottom:6px">💰 BUTIN RÉCUPÉRÉ</div>
+      <div id="combat-report-loot-values" style="font-family:'Orbitron',monospace;font-size:1rem;color:var(--accent3);font-weight:700"></div>
+    </div>
+    <div id="combat-report-losses-section" style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:6px;padding:14px;margin-bottom:20px">
+      <div style="font-size:.7rem;color:var(--text2);letter-spacing:1px;margin-bottom:10px">⚠️ PERTES</div>
+      <div id="combat-report-losses" style="font-size:.88rem;color:var(--text2);line-height:1.8"></div>
+    </div>
+    <button onclick="document.getElementById('combat-report-modal').style.display='none'" style="width:100%;padding:12px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.15);border-radius:4px;color:var(--text);font-family:'Orbitron',monospace;font-size:.78rem;letter-spacing:2px;cursor:pointer;transition:.2s" onmouseover="this.style.background='rgba(255,255,255,.12)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">FERMER</button>
   </div>
 </div>
 
