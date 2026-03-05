@@ -1472,7 +1472,7 @@ function calcPlayerDefensePower(playerData) {
       def += (fleet.cruiser||0)    * 100 * sB;
       def += (fleet.battleship||0) * 500 * sB;
       DEFENSES.forEach(d => {
-        def += (defense[d.id]||0) * d.def;
+        def += (defense[d.id]||0) * d.def * sB;  // boucliers appliqués aux défenses planétaires
       });
     });
   } else {
@@ -1482,7 +1482,7 @@ function calcPlayerDefensePower(playerData) {
     def += (fleet.cruiser||0)    * 100 * sB;
     def += (fleet.battleship||0) * 500 * sB;
     DEFENSES.forEach(d => {
-      def += (playerData.defense?.[d.id]||0) * d.def;
+      def += (playerData.defense?.[d.id]||0) * d.def * sB;  // boucliers appliqués aux défenses planétaires
     });
   }
   return Math.floor(def);
