@@ -1647,7 +1647,28 @@ async function processIncomingAttacks() {
 }
 
 // Ouvre le modal d'attaque
-window._openAttackModal = async (targetUid, targetName, targetPlanet) => {
+// Calcule la distance hexagonale entre deux cases (grille offset)
+function hexDistance(col1, row1, col2, row2) {
+  // Conversion en coordonnées cubiques pour grille hex offset
+  const toCube = (col, row) => {
+    const x = col - (row - (row & 1)) / 2;
+    const z = row;
+    const y = -x - z;
+    return { x, y, z };
+  };
+  const a = toCube(col1, row1);
+  const b = toCube(col2, row2);
+  return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y), Math.abs(a.z - b.z));
+}
+
+// Calcule le nombre de tours de trajet selon distance et recherche propulsion
+function calcTravelTurns(col1, row1, col2, row2, propulsionLevel) {
+  const dist = hexDistance(col1, row1, col2, row2);
+  const speedBonus = 1 + (propulsionLevel || 0) * 0.20; // +20% par niveau
+  return Math.max(1, Math.round(dist / 3 / speedBonus));
+}
+
+window._openAttackModal = async (targetUid, targetName, targetPlanet, targetCol, targetRow) => {
   if (!G) return;
   const totalFleet = Object.values(G.planets[0].fleet||{}).reduce((a,b)=>a+b,0);
   if (totalFleet === 0) { notify(t('attackNoFleet'), true); return; }
@@ -1661,7 +1682,7 @@ window._openAttackModal = async (targetUid, targetName, targetPlanet) => {
     if (!inFlight.empty) { notify(t('attackAlready'), true); return; }
   } catch(e) {}
 
-  window._attackTarget = { uid: targetUid, name: targetName, planet: targetPlanet };
+  window._attackTarget = { uid: targetUid, name: targetName, planet: targetPlanet, col: targetCol, row: targetRow };
   window._attackFleet  = { fighter:0, cruiser:0, battleship:0, colonizer:0 };
   window._attackSourcePlanet = G.planets[0]; // on attaque depuis la planète principale
 
@@ -1690,6 +1711,17 @@ window._openAttackModal = async (targetUid, targetName, targetPlanet) => {
 
   document.getElementById('attack-ships-list').innerHTML = rows || `<div style="color:var(--text2)">${t('attackNoFleet')}</div>`;
   document.getElementById('attack-power-preview').textContent = '⚔️ 0';
+
+  // Afficher le temps de trajet estimé
+  const travelTurns = calcTravelTurns(
+    G.planets[0].hexCol ?? 0, G.planets[0].hexRow ?? 0,
+    targetCol ?? 0, targetRow ?? 0,
+    G.research.combustion || 0
+  );
+  const travelEl = document.getElementById('attack-travel-time');
+  if (travelEl) travelEl.textContent = lang === 'fr'
+    ? `🚀 Temps de trajet : ${travelTurns} tour${travelTurns > 1 ? 's' : ''}`
+    : `🚀 Travel time: ${travelTurns} turn${travelTurns > 1 ? 's' : ''}`;
   document.getElementById('attack-modal').style.display = 'flex';
 };
 
@@ -1735,7 +1767,11 @@ window._confirmAttack = async () => {
       fleet: { ...window._attackFleet },
       attackerResearch: { ...G.research },
       turn: G.turn,
-      arrivalTurn: G.turn + 1,
+      arrivalTurn: G.turn + calcTravelTurns(
+        G.planets[0].hexCol ?? 0, G.planets[0].hexRow ?? 0,
+        window._attackTarget.col ?? 0, window._attackTarget.row ?? 0,
+        G.research.combustion || 0
+      ),
       status: 'pending',
       createdAt: Date.now(),
     });
@@ -2617,8 +2653,7 @@ async function renderGalaxy() {
   }
 
   el.innerHTML = mapHTML;
-  const humanCount = players.filter(p => !p.isAI).length;
-  document.getElementById('player-count').textContent = humanCount + ' ' + t('playerCount');
+  document.getElementById('player-count').textContent = players.length + ' ' + t('playerCount');
 
   // Stocker la cellMap pour les popups
   window._hexCellMap = cellMap;
@@ -2664,7 +2699,7 @@ window._showHexPopup = (col, row, event) => {
       <span style="color:var(--metal)">🪨 ${fmt(p.resources?.metal||0)}</span>
       <span style="color:var(--crystal)">💎 ${fmt(p.resources?.crystal||0)}</span>
     </div>
-    <button class="btn orange" style="padding:8px;font-size:.8rem" onclick="window._openAttackModal('${cell.uid||''}','${(cell.commander||'').replace(/'/g,"\\'")}','${(cell.planet.name||'').replace(/'/g,"\\'")}');document.getElementById('hex-popup').style.display='none'">
+    <button class="btn orange" style="padding:8px;font-size:.8rem" onclick="window._openAttackModal('${cell.uid||''}','${(cell.commander||'').replace(/'/g,"\\'")}','${(cell.planet.name||'').replace(/'/g,"\\'")}',${col},${row});document.getElementById('hex-popup').style.display='none'">
       ${t('attackPlayer')}
     </button>`;
   // Positionner la popup près du curseur
@@ -4043,10 +4078,11 @@ window._notify = notify;
     </div>
     <div style="font-size:.8rem;color:var(--text2);margin-bottom:20px" id="attack-modal-sub">Choisissez les vaisseaux à envoyer au combat. Résultats au prochain tour.</div>
     <div id="attack-ships-list" style="display:flex;flex-direction:column;gap:12px;margin-bottom:20px"></div>
-    <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-top:1px solid var(--border);margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-top:1px solid var(--border);margin-bottom:8px">
       <span style="font-size:.8rem;color:var(--text2)">Puissance d'attaque estimée :</span>
       <span id="attack-power-preview" style="font-family:'Orbitron',monospace;color:var(--accent2);font-size:1rem;font-weight:700">⚔️ 0</span>
     </div>
+    <div id="attack-travel-time" style="font-size:.8rem;color:var(--accent);text-align:center;margin-bottom:16px;font-family:'Orbitron',monospace;letter-spacing:1px"></div>
     <div style="display:flex;gap:10px">
       <button class="btn" style="border-color:var(--border);color:var(--text2)" onclick="window._closeAttackModal()">ANNULER</button>
       <button class="btn orange" onclick="window._confirmAttack()">🚀 ENVOYER L'ESCADRON</button>
