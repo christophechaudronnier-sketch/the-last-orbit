@@ -2617,7 +2617,8 @@ async function renderGalaxy() {
   }
 
   el.innerHTML = mapHTML;
-  document.getElementById('player-count').textContent = players.length + ' ' + t('playerCount');
+  const humanCount = players.filter(p => !p.isAI).length;
+  document.getElementById('player-count').textContent = humanCount + ' ' + t('playerCount');
 
   // Stocker la cellMap pour les popups
   window._hexCellMap = cellMap;
