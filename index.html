@@ -504,6 +504,8 @@ async function loadGame() {
       // Migration : ajouter score et combatWins si absents (anciens comptes)
       if (G.score === undefined) G.score = 0;
       if (G.combatWins === undefined) G.combatWins = 0;
+      // Recalculer le score à chaque chargement pour prendre en compte le nouveau barème
+      G.score = computeScore();
       activePlanetIndex = 0;
       return true;
     }
