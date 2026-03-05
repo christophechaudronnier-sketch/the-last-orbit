@@ -378,9 +378,9 @@ function t(key) { return T[lang][key] || key; }
 
 // ========== GAME DATA ==========
 const BUILDINGS = [
-  { id: 'mine_metal', nameKey: 'mineMetal', icon: '⛏️', descFr: "Extrait du métal brut de la croûte planétaire.", descEn: "Extracts raw metal from the planetary crust.", costBase: {metal:60,crystal:15,energy:0}, production:'metal', prodBase:20 },
-  { id: 'mine_crystal', nameKey: 'mineCrystal', icon: '💠', descFr: "Extrait des cristaux rares essentiels à la technologie.", descEn: "Extracts rare crystals essential to technology.", costBase: {metal:48,crystal:24,energy:0}, production:'crystal', prodBase:12 },
-  { id: 'power_plant', nameKey: 'powerPlant', icon: '🔋', descFr: "Génère de l'énergie pour vos installations.", descEn: "Generates energy to power your facilities.", costBase: {metal:75,crystal:30,energy:0}, production:'energy', prodBase:25 },
+  { id: 'mine_metal', nameKey: 'mineMetal', icon: '⛏️', descFr: "Extrait du métal brut de la croûte planétaire.", descEn: "Extracts raw metal from the planetary crust.", costBase: {metal:60,crystal:15,energy:0}, production:'metal', prodBase:100 },
+  { id: 'mine_crystal', nameKey: 'mineCrystal', icon: '💠', descFr: "Extrait des cristaux rares essentiels à la technologie.", descEn: "Extracts rare crystals essential to technology.", costBase: {metal:48,crystal:24,energy:0}, production:'crystal', prodBase:70 },
+  { id: 'power_plant', nameKey: 'powerPlant', icon: '🔋', descFr: "Génère de l'énergie pour vos installations.", descEn: "Generates energy to power your facilities.", costBase: {metal:75,crystal:30,energy:0}, production:'energy', prodBase:100 },
   { id: 'shipyard', nameKey: null, icon: '🛸', nameFr:'Chantier Naval', nameEn:'Shipyard', descFr: "Permet la construction de vaisseaux spatiaux.", descEn: "Enables construction of spacecraft.", costBase: {metal:200,crystal:100,energy:30}, production:null },
   { id: 'research_lab', nameKey: null, icon: '🔭', nameFr:'Laboratoire', nameEn:'Research Lab', descFr: "Débloque et accélère les recherches.", descEn: "Unlocks and accelerates research.", costBase: {metal:200,crystal:400,energy:40}, production:null },
   { id: 'spaceport', nameKey: null, icon: '🏪', nameFr:'Port Spatial', nameEn:'Space Port', descFr: "Permet de poster des offres sur le marché galactique. Chaque niveau débloque un slot d'offre supplémentaire.", descEn: "Allows posting offers on the galactic market. Each level unlocks an additional offer slot.", costBase: {metal:300,crystal:500,energy:60}, production:null, maxLevel:3 },
@@ -396,10 +396,10 @@ const RESEARCH = [
 ];
 
 const SHIPS = [
-  { id:'fighter', icon:'🔹', nameFr:'Chasseur Léger', nameEn:'Light Fighter', descFr:"Rapide et peu coûteux.", descEn:"Fast and cheap.", cost:{metal:800,crystal:300,energy:0}, att:50, def:20, requires:{shipyard:1} },
-  { id:'cruiser', icon:'🔸', nameFr:'Croiseur', nameEn:'Cruiser', descFr:"Solide et puissant.", descEn:"Solid and powerful.", cost:{metal:5000,crystal:1800,energy:500}, att:350, def:200, requires:{shipyard:2,combustion:1} },
-  { id:'battleship', icon:'🔶', nameFr:'Cuirassé', nameEn:'Battleship', descFr:"Le plus puissant de votre flotte.", descEn:"The most powerful in your fleet.", cost:{metal:12000,crystal:4000,energy:0}, att:1000, def:500, requires:{shipyard:3,hyperdrive:1} },
-  { id:'colonizer', icon:'📦', nameFr:'Vaisseau Colonisateur', nameEn:'Colonizer Ship', descFr:"Permet de coloniser une planète vide. Consommé lors de la colonisation.", descEn:"Allows colonizing an empty planet. Consumed upon colonization.", cost:{metal:2500,crystal:5000,energy:250}, att:5, def:10, requires:{shipyard:2} },
+  { id:'fighter', icon:'🔹', nameFr:'Chasseur Léger', nameEn:'Light Fighter', descFr:"Rapide et peu coûteux.", descEn:"Fast and cheap.", cost:{metal:200,crystal:60,energy:0}, att:50, def:20, requires:{shipyard:1} },
+  { id:'cruiser', icon:'🔸', nameFr:'Croiseur', nameEn:'Cruiser', descFr:"Solide et puissant.", descEn:"Solid and powerful.", cost:{metal:1000,crystal:400,energy:100}, att:350, def:200, requires:{shipyard:2,combustion:1} },
+  { id:'battleship', icon:'🔶', nameFr:'Cuirassé', nameEn:'Battleship', descFr:"Le plus puissant de votre flotte.", descEn:"The most powerful in your fleet.", cost:{metal:2500,crystal:800,energy:0}, att:1000, def:500, requires:{shipyard:3,hyperdrive:1} },
+  { id:'colonizer', icon:'📦', nameFr:'Vaisseau Colonisateur', nameEn:'Colonizer Ship', descFr:"Permet de coloniser une planète vide. Consommé lors de la colonisation.", descEn:"Allows colonizing an empty planet. Consumed upon colonization.", cost:{metal:600,crystal:1000,energy:50}, att:5, def:10, requires:{shipyard:2} },
 ];
 
 
@@ -811,7 +811,7 @@ function computeScore() {
 }
 
 function getProduction() {
-  const prod = { metal:20, crystal:10, energy:10 };
+  const prod = { metal:200, crystal:100, energy:100 };
   (G.planets||[]).forEach(planet => {
     BUILDINGS.forEach(b => {
       const lv = (planet.buildings||{})[b.id]||0;
