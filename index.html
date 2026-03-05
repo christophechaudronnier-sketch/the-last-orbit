@@ -840,22 +840,23 @@ function nextMidnight() {
   return d.getTime();
 }
 
-// Retourne le timestamp du prochain minuit à partir d'un timestamp donné
+// Retourne le timestamp du prochain minuit APRÈS un timestamp donné
 function nextMidnightAfter(ts) {
-  const d = new Date(ts);
-  d.setHours(24, 0, 0, 0);
+  const d = new Date(ts + 24 * 60 * 60 * 1000); // +1 jour
+  d.setHours(0, 0, 0, 0);                        // tronquer à minuit
   return d.getTime();
 }
 
 // Calcule combien de tours se sont écoulés depuis nextTurnTime
+// nextTurnTime = minuit du prochain tour attendu
+// Si now >= nextTurnTime → au moins 1 tour à traiter
 function countMissedTurns() {
   const now = Date.now();
   if (now < G.nextTurnTime) return 0;
-  // Chaque tour = 1 jour (minuit à minuit)
-  // On remonte depuis nextTurnTime en ajoutant des jours
-  let count = 0;
-  let t = G.nextTurnTime;
-  while (t <= now && count < 30) { // max 30 tours de rattrapage
+  // On compte combien de minuits sont passés depuis nextTurnTime
+  let count = 1;
+  let t = nextMidnightAfter(G.nextTurnTime);
+  while (t <= now && count < 30) {
     count++;
     t = nextMidnightAfter(t);
   }
