@@ -2702,8 +2702,7 @@ async function renderGalaxy() {
   }
 
   el.innerHTML = mapHTML;
-  const humanCount = players.filter(p => !p.isAI).length;
-  document.getElementById('player-count').textContent = humanCount + ' ' + t('playerCount');
+
 
   // Stocker la cellMap pour les popups
   window._hexCellMap = cellMap;
@@ -3926,7 +3925,6 @@ window._notify = notify;
         <div id="countdown">—</div>
       </div>
       <div class="header-actions">
-        <span style="font-size:.75rem;color:var(--text2)" id="player-count"></span>
         <button class="hdr-btn" id="lang-btn" onclick="window._toggleLang()">EN</button>
         <button class="hdr-btn" onclick="window._logout()" data-tkey="logout">DÉCONNEXION</button>
       </div>
