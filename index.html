@@ -807,7 +807,7 @@ function computeScore() {
   const res = G.resources || {};
   const stockBonus = ((res.metal||0) + (res.crystal||0) + (res.energy||0)) * 0.1;
 
-  return Math.floor((spent + stockBonus) / 1000);
+  return Math.floor((spent + stockBonus) / 100);
 }
 
 function getProduction() {
@@ -2888,28 +2888,57 @@ async function renderRanking() {
       <tbody>${warriors.map((p,i) => buildPlayerRow(p, i, 'combatWins', 'var(--accent2)', n => String(n))).join('')}</tbody>
     </table>`;
 
-  // Décomposition du score du joueur (sans victoires)
-  const resScore  = Math.floor(((G.resources.metal||0) + (G.resources.crystal||0)*2 + (G.resources.energy||0)) / 100);
+  // Décomposition du score du joueur — nouveau barème (ressources dépensées)
   let bldScore = 0;
-  (G.planets||[]).forEach(planet => { Object.values(planet.buildings||{}).forEach(lv => { bldScore += (lv||0)*50; }); });
-  const researchScore = Object.values(G.research||{}).reduce((a,lv)=>a+(lv||0)*200, 0);
+  (G.planets||[]).forEach(planet => {
+    BUILDINGS.forEach(b => {
+      const lv = (planet.buildings||{})[b.id]||0;
+      if (!lv) return;
+      const base = (b.costBase.metal||0)+(b.costBase.crystal||0)+(b.costBase.energy||0);
+      bldScore += base * lv;
+    });
+  });
+  let researchScore = 0;
+  RESEARCH.forEach(r => {
+    const lv = (G.research||{})[r.id]||0;
+    if (!lv) return;
+    const base = (r.costBase.metal||0)+(r.costBase.crystal||0)+(r.costBase.energy||0);
+    researchScore += base * lv;
+  });
   let fleetScore = 0;
   (G.planets||[]).forEach(planet => {
-    const fl = planet.fleet||{};
-    fleetScore += (fl.fighter||0)*10 + (fl.cruiser||0)*50 + (fl.battleship||0)*200 + (fl.colonizer||0)*30;
+    SHIPS.forEach(s => {
+      const qty = (planet.fleet||{})[s.id]||0;
+      if (!qty) return;
+      const base = (s.cost.metal||0)+(s.cost.crystal||0)+(s.cost.energy||0);
+      fleetScore += base * qty;
+    });
   });
-  const colonyScore = Math.max(0, (G.planets||[]).length-1) * 1000;
+  let defenseScore = 0;
+  (G.planets||[]).forEach(planet => {
+    DEFENSES.forEach(d => {
+      const qty = (planet.defense||{})[d.id]||0;
+      if (!qty) return;
+      const base = (d.cost.metal||0)+(d.cost.crystal||0)+(d.cost.energy||0);
+      defenseScore += base * qty;
+    });
+  });
+  const colonyScore = Math.max(0, (G.planets||[]).length-1) * 50000;
+  const resScore = Math.floor(((G.resources.metal||0)+(G.resources.crystal||0)+(G.resources.energy||0)) * 0.1);
+  // Diviser par 100 comme dans computeScore
+  const toDisplay = v => Math.floor(v / 100);
 
   html += `
     <div style="margin-top:4px;padding:20px;background:var(--panel);border:1px solid var(--border);border-radius:6px">
       <div style="font-family:'Orbitron',monospace;font-size:.72rem;color:var(--text2);letter-spacing:2px;margin-bottom:14px">📊 DÉTAIL DE VOTRE SCORE EMPIRE</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">
         ${[
-          ['🪨 Ressources',  resScore],
-          ['🏗️ Bâtiments',   bldScore],
-          ['🔬 Recherches',  researchScore],
-          ['🚀 Flotte',      fleetScore],
-          ['🌍 Colonies',    colonyScore],
+          ['🪨 Stock',       toDisplay(resScore)],
+          ['🏗️ Bâtiments',   toDisplay(bldScore)],
+          ['🔬 Recherches',  toDisplay(researchScore)],
+          ['🚀 Flotte',      toDisplay(fleetScore)],
+          ['🛡️ Défenses',    toDisplay(defenseScore)],
+          ['🌍 Colonies',    toDisplay(colonyScore)],
         ].map(([label, val]) => `
           <div style="background:var(--panel2);border:1px solid var(--border);border-radius:4px;padding:12px;text-align:center">
             <div style="font-size:.78rem;color:var(--text2);margin-bottom:4px">${label}</div>
