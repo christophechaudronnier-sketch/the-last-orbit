@@ -1688,7 +1688,7 @@ function hexDistance(col1, row1, col2, row2) {
 function calcTravelTurns(col1, row1, col2, row2, propulsionLevel) {
   const dist = hexDistance(col1, row1, col2, row2);
   const speedBonus = 1 + (propulsionLevel || 0) * 0.20; // +20% par niveau
-  return Math.max(1, Math.round(dist / 3 / speedBonus));
+  return Math.max(1, Math.round(Math.sqrt(dist) * 1.4 / speedBonus));
 }
 
 window._openAttackModal = async (targetUid, targetName, targetPlanet, targetCol, targetRow) => {
