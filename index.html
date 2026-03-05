@@ -2157,7 +2157,14 @@ function updateUI() {
     const currentQueue = AP().buildQueue||[];
     qEl.innerHTML = currentQueue.length === 0
       ? `<div class="queue-empty">${t('noQueue')}</div>`
-      : currentQueue.map(i=>`<div class="queue-item"><div class="queue-dot"></div><span>${i.name}${i.qty?' x'+i.qty:''}</span></div>`).join('');
+      : currentQueue.map((i,idx)=>`
+          <div class="queue-item" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <div style="display:flex;align-items:center;gap:6px">
+              <div class="queue-dot"></div>
+              <span>${i.name}${i.qty?' x'+i.qty:''}</span>
+            </div>
+            <button onclick="window._cancelQueueItem(${idx})" style="background:rgba(255,60,60,.15);border:1px solid rgba(255,60,60,.4);color:var(--danger);padding:2px 8px;cursor:pointer;border-radius:3px;font-size:.75rem" title="Annuler et rembourser">✕</button>
+          </div>`).join('');
   }
 
   // Active missions
@@ -3173,6 +3180,57 @@ window._queueDefense = async (id) => {
   planet.buildQueue.push({ type:'defense', id, name, qty });
   await saveGame(); updateUI(); renderDefense();
   notify(`${qty}x ${name} ${t('shipQueued')}`);
+};
+
+window._cancelQueueItem = async (idx) => {
+  const planet = AP();
+  const queue = planet.buildQueue || [];
+  if (idx < 0 || idx >= queue.length) return;
+
+  const item = queue[idx];
+
+  // Rembourser les ressources selon le type
+  if (item.type === 'building') {
+    const b = BUILDINGS.find(x => x.id === item.id);
+    if (b) {
+      const lv = (planet.buildings || {})[item.id] || 0;
+      const cost = getBuildingCost(b, lv);
+      G.resources.metal   += cost.metal   || 0;
+      G.resources.crystal += cost.crystal || 0;
+      G.resources.energy  += cost.energy  || 0;
+    }
+  } else if (item.type === 'research') {
+    const r = RESEARCH.find(x => x.id === item.id);
+    if (r) {
+      const cost = getResearchCost(r);
+      G.resources.metal   += cost.metal   || 0;
+      G.resources.crystal += cost.crystal || 0;
+      G.resources.energy  += cost.energy  || 0;
+    }
+  } else if (item.type === 'ship') {
+    const s = SHIPS.find(x => x.id === item.id);
+    if (s) {
+      const qty = item.qty || 1;
+      G.resources.metal   += s.cost.metal   * qty;
+      G.resources.crystal += s.cost.crystal * qty;
+      G.resources.energy  += (s.cost.energy || 0) * qty;
+    }
+  } else if (item.type === 'defense') {
+    const d = DEFENSES.find(x => x.id === item.id);
+    if (d) {
+      const qty = item.qty || 1;
+      G.resources.metal   += d.cost.metal   * qty;
+      G.resources.crystal += d.cost.crystal * qty;
+      G.resources.energy  += (d.cost.energy || 0) * qty;
+    }
+  }
+
+  // Retirer l'item de la file
+  planet.buildQueue.splice(idx, 1);
+
+  await saveGame();
+  updateUI();
+  notify(lang === 'fr' ? `↩️ ${item.name} annulé — ressources remboursées` : `↩️ ${item.name} cancelled — resources refunded`);
 };
 
 window._launchMission = async (type, name) => {
