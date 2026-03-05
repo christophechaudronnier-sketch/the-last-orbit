@@ -2279,6 +2279,25 @@ function renderFleet() {
     </div>`;
   });
 
+  // Colonisation en cours
+  const colZone = document.getElementById('fleet-colonization-status');
+  if (colZone) {
+    if (G.pendingColonization) {
+      const pc = G.pendingColonization;
+      const rem = Math.max(0, (pc.arrivalTurn || (G.turn + 1)) - G.turn);
+      const etaLabel = rem === 0
+        ? '<b style="color:var(--danger)">⚡ IMMINENT</b>'
+        : rem + ' tour' + (rem > 1 ? 's' : '');
+      colZone.innerHTML = `<div style="margin:16px 0;padding:14px;background:rgba(0,200,100,.07);border:1px solid rgba(0,200,100,.3);border-radius:8px">
+        <div style="font-family:'Orbitron',monospace;font-size:.75rem;color:#4ade80;letter-spacing:2px;margin-bottom:8px">🌍 COLONISATION EN COURS</div>
+        <div style="font-size:.85rem;color:var(--text)">Destination : <b>${pc.planetName}</b></div>
+        <div style="font-size:.8rem;color:var(--text2);margin-top:4px">⏱ Arrivée dans : <b style="color:#4ade80">${etaLabel}</b></div>
+      </div>`;
+    } else {
+      colZone.innerHTML = '';
+    }
+  }
+
   // Fleet table
   const tbody = document.getElementById('fleet-table-body');
   if (tbody) {
@@ -3038,7 +3057,8 @@ window._confirmColonize = async () => {
     do { col = Math.floor(Math.random()*9); row = Math.floor(Math.random()*9); tries++; }
     while (usedCoords.includes(`${col},${row}`) && tries < 50);
   }
-  G.pendingColonization = { ...window._colonizeTarget, hexCol: col, hexRow: row };
+  const colTurns = calcTravelTurns(G.planets[0].hexCol??0, G.planets[0].hexRow??0, col??0, row??0, G.research.combustion||0);
+  G.pendingColonization = { ...window._colonizeTarget, hexCol: col, hexRow: row, arrivalTurn: G.turn + colTurns };
   addLog(`🚀 ${lang==='fr'?'Colonisateur envoyé vers':'Colonizer sent to'} ${window._colonizeTarget.planetName}`, 'info');
   await saveGame();
   window._closeColonizeModal();
@@ -3936,6 +3956,7 @@ window._notify = notify;
             <tbody id="fleet-table-body"></tbody>
           </table>
         </div>
+        <div id="fleet-colonization-status"></div>
         <div id="attack-status-fleet" style="display:none;background:rgba(255,40,40,.06);border:1px solid rgba(255,60,60,.25);border-radius:4px;padding:16px;margin-top:16px"></div>
       </div>
 
