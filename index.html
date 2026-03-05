@@ -780,9 +780,6 @@ function computeScore() {
     score += (fl.colonizer||0)  * 30;
   });
 
-  // Victoires en combat × 500
-  score += (G.combatWins||0) * 500;
-
   // Colonies (hors planète principale) × 1000
   const colonies = (G.planets||[]).length - 1;
   score += Math.max(0, colonies) * 1000;
@@ -1100,7 +1097,6 @@ function computeAIScore(ai) {
     const fl = planet.fleet||{};
     score += (fl.fighter||0)*10 + (fl.cruiser||0)*50 + (fl.battleship||0)*200 + (fl.colonizer||0)*30;
   });
-  score += (ai.combatWins||0)*500;
   score += Math.max(0,(ai.planets||[]).length-1)*1000;
   return Math.floor(score);
 }
@@ -2731,8 +2727,10 @@ async function renderRanking() {
     }))
   ];
 
-  // Trier par score décroissant
+  // Trier par score décroissant pour le classement Empire
   allPlayers.sort((a, b) => b.score - a.score);
+  // Trier par victoires décroissantes pour le classement Guerrier
+  const warriors = [...allPlayers].sort((a, b) => (b.combatWins||0) - (a.combatWins||0));
 
   const medals = ['🥇','🥈','🥉'];
 
@@ -2742,29 +2740,7 @@ async function renderRanking() {
     return String(n);
   };
 
-  let html = `
-    <div style="margin-bottom:20px;padding:16px;background:rgba(255,215,0,.06);border:1px solid rgba(255,215,0,.25);border-radius:6px;display:flex;align-items:center;gap:16px">
-      <div style="font-size:2rem">🏆</div>
-      <div>
-        <div style="font-family:'Orbitron',monospace;font-size:.75rem;color:rgba(255,215,0,.8);letter-spacing:2px">VOTRE SCORE</div>
-        <div style="font-family:'Orbitron',monospace;font-size:1.4rem;color:#FFD700;font-weight:900">${fmt(myScore)}</div>
-        <div style="font-size:.8rem;color:var(--text2);margin-top:2px">${lang==='fr'?'Mis à jour à chaque tour':'Updated each turn'}</div>
-      </div>
-    </div>
-    <table style="width:100%;border-collapse:collapse;font-size:.88rem">
-      <thead>
-        <tr style="background:var(--panel2)">
-          <th style="padding:10px 12px;text-align:left;font-family:'Orbitron',monospace;font-size:.7rem;color:var(--text2);letter-spacing:1px;border-bottom:1px solid var(--border)">#</th>
-          <th style="padding:10px 12px;text-align:left;font-family:'Orbitron',monospace;font-size:.7rem;color:var(--text2);letter-spacing:1px;border-bottom:1px solid var(--border)">COMMANDANT</th>
-          <th style="padding:10px 12px;text-align:right;font-family:'Orbitron',monospace;font-size:.7rem;color:var(--text2);letter-spacing:1px;border-bottom:1px solid var(--border)">SCORE</th>
-          <th style="padding:10px 12px;text-align:right;font-family:'Orbitron',monospace;font-size:.7rem;color:var(--text2);letter-spacing:1px;border-bottom:1px solid var(--border)">🌍 PLANÈTES</th>
-          <th style="padding:10px 12px;text-align:right;font-family:'Orbitron',monospace;font-size:.7rem;color:var(--text2);letter-spacing:1px;border-bottom:1px solid var(--border)">⚔️ VICTOIRES</th>
-          <th style="padding:10px 12px;text-align:right;font-family:'Orbitron',monospace;font-size:.7rem;color:var(--text2);letter-spacing:1px;border-bottom:1px solid var(--border)">🔬 RECHERCHES</th>
-        </tr>
-      </thead>
-      <tbody>`;
-
-  allPlayers.forEach((p, i) => {
+  const buildPlayerRow = (p, i, scoreKey, scoreColor, scoreFormatter) => {
     const rank = i + 1;
     const medal = medals[i] || `#${rank}`;
     const isMe = p.isMe;
@@ -2772,32 +2748,68 @@ async function renderRanking() {
     const bg = isMe ? 'rgba(0,200,255,.07)' : (i%2===0 ? 'transparent' : 'rgba(255,255,255,.02)');
     const border = isMe ? 'border-left:3px solid var(--accent);' : isAI ? 'border-left:3px solid rgba(180,100,255,.6);' : 'border-left:3px solid transparent;';
     const nameColor = isMe ? 'var(--accent)' : isAI ? '#c084fc' : 'var(--text)';
-    const totalResearch = Object.values(p.research||{}).reduce((a,b)=>a+(b||0),0);
-    const planetCount = (p.planets||[]).length;
     const mainPlanet = (p.planets||[])[0] || {};
     const aiBadge = isAI ? '<span style="background:rgba(180,100,255,.25);color:#c084fc;font-size:.6rem;padding:1px 4px;border-radius:3px;margin-left:4px">🤖 IA</span>' : '';
-
-    html += `<tr style="background:${bg};${border}transition:background .15s">
-      <td style="padding:12px 12px;font-family:'Orbitron',monospace;font-size:.9rem;text-align:left">${medal}</td>
-      <td style="padding:12px 12px">
+    const val = scoreFormatter ? scoreFormatter(p[scoreKey]||0) : fmt(p[scoreKey]||0);
+    return `<tr style="background:${bg};${border}transition:background .15s">
+      <td style="padding:10px 12px;font-family:'Orbitron',monospace;font-size:.9rem;text-align:left">${medal}</td>
+      <td style="padding:10px 12px">
         <div style="display:flex;align-items:center;gap:10px">
-          <span style="font-size:1.3rem">${mainPlanet.emoji||'🪐'}</span>
+          <span style="font-size:1.2rem">${mainPlanet.emoji||'🪐'}</span>
           <div>
-            <div style="font-family:'Orbitron',monospace;font-size:.78rem;color:${nameColor};font-weight:700">${p.commanderName}${isMe?' <span style="font-size:.65rem;color:var(--accent);opacity:.8">(vous)</span>':''}${aiBadge}</div>
-            <div style="font-size:.72rem;color:var(--text2);margin-top:2px">${mainPlanet.name||'???'}</div>
+            <div style="font-family:'Orbitron',monospace;font-size:.75rem;color:${nameColor};font-weight:700">${p.commanderName}${isMe?' <span style="font-size:.62rem;color:var(--accent);opacity:.8">(vous)</span>':''}${aiBadge}</div>
+            <div style="font-size:.7rem;color:var(--text2);margin-top:1px">${mainPlanet.name||'???'}</div>
           </div>
         </div>
       </td>
-      <td style="padding:12px 12px;text-align:right;font-family:'Orbitron',monospace;font-size:.9rem;font-weight:700;color:${isMe?'#FFD700':'var(--text)'}">${fmt(p.score||0)}</td>
-      <td style="padding:12px 12px;text-align:right;color:var(--accent3)">${planetCount}</td>
-      <td style="padding:12px 12px;text-align:right;color:var(--accent2)">${p.combatWins||0}</td>
-      <td style="padding:12px 12px;text-align:right;color:var(--crystal)">${totalResearch}</td>
+      <td style="padding:10px 12px;text-align:right;font-family:'Orbitron',monospace;font-size:.9rem;font-weight:700;color:${isMe?scoreColor:scoreColor}">${val}</td>
     </tr>`;
-  });
+  };
 
-  html += `</tbody></table>`;
+  let html = `
+    <!-- Score perso -->
+    <div style="margin-bottom:24px;padding:16px;background:rgba(255,215,0,.06);border:1px solid rgba(255,215,0,.25);border-radius:6px;display:flex;align-items:center;gap:16px">
+      <div style="font-size:2rem">🏆</div>
+      <div>
+        <div style="font-family:'Orbitron',monospace;font-size:.75rem;color:rgba(255,215,0,.8);letter-spacing:2px">VOTRE SCORE EMPIRE</div>
+        <div style="font-family:'Orbitron',monospace;font-size:1.4rem;color:#FFD700;font-weight:900">${fmt(myScore)}</div>
+        <div style="font-size:.78rem;color:var(--text2);margin-top:2px">${lang==='fr'?'Mis à jour à chaque tour':'Updated each turn'}</div>
+      </div>
+      <div style="margin-left:auto;text-align:right">
+        <div style="font-family:'Orbitron',monospace;font-size:.75rem;color:rgba(255,100,60,.8);letter-spacing:2px">VOS VICTOIRES</div>
+        <div style="font-family:'Orbitron',monospace;font-size:1.4rem;color:var(--accent2);font-weight:900">⚔️ ${G.combatWins||0}</div>
+      </div>
+    </div>
 
-  // Décomposition du score du joueur
+    <!-- Classement Empire -->
+    <div style="font-family:'Orbitron',monospace;font-size:.75rem;color:#FFD700;letter-spacing:2px;margin-bottom:10px">🏆 CLASSEMENT EMPIRE</div>
+    <div style="font-size:.78rem;color:var(--text2);margin-bottom:14px">${lang==='fr'?'Basé sur le développement économique, militaire et territorial. Les victoires en combat n\'influencent pas ce classement.':'Based on economic, military and territorial development. Combat victories do not influence this ranking.'}</div>
+    <table style="width:100%;border-collapse:collapse;font-size:.88rem;margin-bottom:32px">
+      <thead>
+        <tr style="background:var(--panel2)">
+          <th style="padding:10px 12px;text-align:left;font-family:'Orbitron',monospace;font-size:.7rem;color:var(--text2);letter-spacing:1px;border-bottom:1px solid var(--border)">#</th>
+          <th style="padding:10px 12px;text-align:left;font-family:'Orbitron',monospace;font-size:.7rem;color:var(--text2);letter-spacing:1px;border-bottom:1px solid var(--border)">COMMANDANT</th>
+          <th style="padding:10px 12px;text-align:right;font-family:'Orbitron',monospace;font-size:.7rem;color:#FFD700;letter-spacing:1px;border-bottom:1px solid var(--border)">SCORE</th>
+        </tr>
+      </thead>
+      <tbody>${allPlayers.map((p,i) => buildPlayerRow(p, i, 'score', '#FFD700', null)).join('')}</tbody>
+    </table>
+
+    <!-- Classement Guerrier -->
+    <div style="font-family:'Orbitron',monospace;font-size:.75rem;color:var(--accent2);letter-spacing:2px;margin-bottom:10px">⚔️ CLASSEMENT GUERRIER</div>
+    <div style="font-size:.78rem;color:var(--text2);margin-bottom:14px">${lang==='fr'?'Basé uniquement sur le nombre de victoires en combat multijoueur.':'Based solely on the number of multiplayer combat victories.'}</div>
+    <table style="width:100%;border-collapse:collapse;font-size:.88rem;margin-bottom:32px">
+      <thead>
+        <tr style="background:var(--panel2)">
+          <th style="padding:10px 12px;text-align:left;font-family:'Orbitron',monospace;font-size:.7rem;color:var(--text2);letter-spacing:1px;border-bottom:1px solid var(--border)">#</th>
+          <th style="padding:10px 12px;text-align:left;font-family:'Orbitron',monospace;font-size:.7rem;color:var(--text2);letter-spacing:1px;border-bottom:1px solid var(--border)">COMMANDANT</th>
+          <th style="padding:10px 12px;text-align:right;font-family:'Orbitron',monospace;font-size:.7rem;color:var(--accent2);letter-spacing:1px;border-bottom:1px solid var(--border)">⚔️ VICTOIRES</th>
+        </tr>
+      </thead>
+      <tbody>${warriors.map((p,i) => buildPlayerRow(p, i, 'combatWins', 'var(--accent2)', n => String(n))).join('')}</tbody>
+    </table>`;
+
+  // Décomposition du score du joueur (sans victoires)
   const resScore  = Math.floor(((G.resources.metal||0) + (G.resources.crystal||0)*2 + (G.resources.energy||0)) / 100);
   let bldScore = 0;
   (G.planets||[]).forEach(planet => { Object.values(planet.buildings||{}).forEach(lv => { bldScore += (lv||0)*50; }); });
@@ -2807,19 +2819,17 @@ async function renderRanking() {
     const fl = planet.fleet||{};
     fleetScore += (fl.fighter||0)*10 + (fl.cruiser||0)*50 + (fl.battleship||0)*200 + (fl.colonizer||0)*30;
   });
-  const winScore    = (G.combatWins||0) * 500;
   const colonyScore = Math.max(0, (G.planets||[]).length-1) * 1000;
 
   html += `
-    <div style="margin-top:28px;padding:20px;background:var(--panel);border:1px solid var(--border);border-radius:6px">
-      <div style="font-family:'Orbitron',monospace;font-size:.72rem;color:var(--text2);letter-spacing:2px;margin-bottom:14px">📊 DÉTAIL DE VOTRE SCORE</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px">
+    <div style="margin-top:4px;padding:20px;background:var(--panel);border:1px solid var(--border);border-radius:6px">
+      <div style="font-family:'Orbitron',monospace;font-size:.72rem;color:var(--text2);letter-spacing:2px;margin-bottom:14px">📊 DÉTAIL DE VOTRE SCORE EMPIRE</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">
         ${[
           ['🪨 Ressources',  resScore],
           ['🏗️ Bâtiments',   bldScore],
           ['🔬 Recherches',  researchScore],
           ['🚀 Flotte',      fleetScore],
-          ['⚔️ Victoires',   winScore],
           ['🌍 Colonies',    colonyScore],
         ].map(([label, val]) => `
           <div style="background:var(--panel2);border:1px solid var(--border);border-radius:4px;padding:12px;text-align:center">
