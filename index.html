@@ -757,34 +757,55 @@ function maxPlanets() {
 // ========== SCORE ==========
 function computeScore() {
   if (!G) return 0;
-  let score = 0;
+  let spent = 0;
 
-  // Ressources accumulées : (métal + cristal×2 + énergie) / 100
-  const res = G.resources || {};
-  score += Math.floor(((res.metal||0) + (res.crystal||0)*2 + (res.energy||0)) / 100);
-
-  // Bâtiments : somme de tous les niveaux × 50 (toutes planètes)
+  // Bâtiments : coût du niveau × nombre de niveaux (toutes planètes)
   (G.planets||[]).forEach(planet => {
-    Object.values(planet.buildings||{}).forEach(lv => { score += (lv||0) * 50; });
+    BUILDINGS.forEach(b => {
+      const lv = (planet.buildings||{})[b.id] || 0;
+      if (!lv) return;
+      const base = (b.costBase.metal||0) + (b.costBase.crystal||0) + (b.costBase.energy||0);
+      spent += base * lv;
+    });
   });
 
-  // Recherches : somme de tous les niveaux × 200
-  Object.values(G.research||{}).forEach(lv => { score += (lv||0) * 200; });
-
-  // Flotte : chasseur×10 + croiseur×50 + cuirassé×200 + colonisateur×30
-  (G.planets||[]).forEach(planet => {
-    const fl = planet.fleet||{};
-    score += (fl.fighter||0)    * 10;
-    score += (fl.cruiser||0)    * 50;
-    score += (fl.battleship||0) * 200;
-    score += (fl.colonizer||0)  * 30;
+  // Recherches : coût du niveau × nombre de niveaux
+  RESEARCH.forEach(r => {
+    const lv = (G.research||{})[r.id] || 0;
+    if (!lv) return;
+    const base = (r.costBase.metal||0) + (r.costBase.crystal||0) + (r.costBase.energy||0);
+    spent += base * lv;
   });
 
-  // Colonies (hors planète principale) × 1000
+  // Flotte : coût de construction × quantité (toutes planètes)
+  (G.planets||[]).forEach(planet => {
+    SHIPS.forEach(s => {
+      const qty = (planet.fleet||{})[s.id] || 0;
+      if (!qty) return;
+      const base = (s.cost.metal||0) + (s.cost.crystal||0) + (s.cost.energy||0);
+      spent += base * qty;
+    });
+  });
+
+  // Défenses : coût × quantité (toutes planètes)
+  (G.planets||[]).forEach(planet => {
+    DEFENSES.forEach(d => {
+      const qty = (planet.defense||{})[d.id] || 0;
+      if (!qty) return;
+      const base = (d.cost.metal||0) + (d.cost.crystal||0) + (d.cost.energy||0);
+      spent += base * qty;
+    });
+  });
+
+  // Colonies (hors planète principale) : bonus fixe
   const colonies = (G.planets||[]).length - 1;
-  score += Math.max(0, colonies) * 1000;
+  spent += Math.max(0, colonies) * 50000;
 
-  return Math.floor(score);
+  // Ressources en stock × 0.1
+  const res = G.resources || {};
+  const stockBonus = ((res.metal||0) + (res.crystal||0) + (res.energy||0)) * 0.1;
+
+  return Math.floor((spent + stockBonus) / 1000);
 }
 
 function getProduction() {
