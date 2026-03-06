@@ -1285,8 +1285,23 @@ async function processAITurns() {
       if (!snap.exists()) continue;
       const ai = snap.data();
 
-      // Vérifier si l'IA doit jouer ce tour
+      // Vérifier si l'IA doit jouer ce tour (transaction pour éviter double traitement)
       if (now < (ai.nextTurnTime||0)) continue;
+      // Verrouiller via transaction avant de traiter
+      let aiLocked = false;
+      try {
+        await runTransaction(db, async (transaction) => {
+          const freshAI = await transaction.get(ref);
+          if (!freshAI.exists()) return;
+          if (Date.now() < (freshAI.data().nextTurnTime||0)) return; // déjà traité
+          transaction.update(ref, { nextTurnTime: nextMidnight() }); // verrouille immédiatement
+          aiLocked = true;
+        });
+      } catch(lockErr) {
+        console.warn('Lock IA échoué, on passe :', profile.id, lockErr);
+        continue;
+      }
+      if (!aiLocked) continue;
 
       // 1. Production
       const prod = getAIProduction(ai);
@@ -1719,6 +1734,20 @@ async function processFleetMoves() {
     for (const moveSnap of snap.docs) {
       const mv = moveSnap.data();
       if (G.turn < mv.arrivalTurn) continue; // pas encore arrivé
+      // Transaction : vérifie que le mouvement est encore 'pending' avant d'appliquer
+      let applied = false;
+      try {
+        await runTransaction(db, async (transaction) => {
+          const freshSnap = await transaction.get(doc(db, 'fleet_moves', moveSnap.id));
+          if (!freshSnap.exists() || freshSnap.data().status !== 'pending') return;
+          transaction.update(doc(db, 'fleet_moves', moveSnap.id), { status: 'arrived' });
+          applied = true;
+        });
+      } catch(txErr) {
+        console.warn('Transaction fleet_move échouée, on passe :', txErr);
+        continue;
+      }
+      if (!applied) continue;
       // Trouver la planète destination (par nom)
       const dest = G.planets.find(p => p.name === mv.destPlanet);
       if (dest) {
@@ -1726,7 +1755,6 @@ async function processFleetMoves() {
         dest.fleet[mv.shipType] = (dest.fleet[mv.shipType] || 0) + mv.qty;
         addLog(`🚀 ${mv.qty}× ${mv.shipType} arrivés sur ${mv.destPlanet}`, 'info');
       }
-      await updateDoc(doc(db, 'fleet_moves', moveSnap.id), { status: 'arrived' });
     }
   } catch(e) { console.error('Fleet move processing error:', e); }
 }
@@ -2326,7 +2354,7 @@ function updateCountdown() {
   const remaining = Math.max(0, G.nextTurnTime - Date.now());
   if (remaining === 0) {
     document.getElementById('countdown').textContent = '00:00:00';
-    processTurn();
+    if (!_processingTurn) processTurn(); // évite les appels répétés par le setInterval
     return;
   }
   const h = Math.floor(remaining/3600000);
