@@ -7,7 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600&display=swap" rel="stylesheet">
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc, serverTimestamp, addDoc, query, where, onSnapshot, deleteDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc, serverTimestamp, addDoc, query, where, onSnapshot, deleteDoc, runTransaction } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 
 // ========== FIREBASE CONFIG ==========
@@ -1622,8 +1622,29 @@ async function processIncomingAttacks() {
     ));
     for (const attackSnap of snap.docs) {
       const atk = attackSnap.data();
-      // L'attaque se résout toujours au prochain tour du défenseur (délai = 1 tour)
-      const report = resolveCombat(atk.fleet, atk.attackerResearch, G);
+      // Ne résoudre que si l'attaque est arrivée (arrivalTurn atteint)
+      if (atk.arrivalTurn && G.turn < atk.arrivalTurn) continue;
+
+      // Transaction : vérifie que l'attaque est encore 'pending' avant de résoudre
+      // Évite la double résolution si deux clients tournent en même temps (race condition)
+      let report = null;
+      try {
+        await runTransaction(db, async (transaction) => {
+          const freshSnap = await transaction.get(doc(db, 'attacks', attackSnap.id));
+          if (!freshSnap.exists() || freshSnap.data().status !== 'pending') return;
+          report = resolveCombat(atk.fleet, atk.attackerResearch, G);
+          transaction.update(doc(db, 'attacks', attackSnap.id), {
+            status: 'resolved',
+            result: { victory: report.victory, atkPower: report.atkPower, defPower: report.defPower, atkLosses: report.atkLosses, defLosses: report.defLosses, loot: report.loot }
+          });
+        });
+      } catch(txErr) {
+        console.warn('Transaction combat échouée, on passe :', txErr);
+        continue;
+      }
+
+      // Si report est null, la transaction a détecté que c'était déjà résolu → on ignore
+      if (!report) continue;
 
       // Applique les conséquences sur le défenseur (planète principale)
       const mainPlanet = G.planets[0];
@@ -1647,16 +1668,10 @@ async function processIncomingAttacks() {
       const defLossMsg = [...Object.entries(report.defLosses), ...Object.entries(report.defLosesDefenses||{})].filter(([,v])=>v>0).map(([k,v])=>`-${v} ${k}`).join(' ');
       addLog(`${outcomeLabel} — ${atk.attackerName} (${atk.attackerPlanet}) ⚔️${fmtLocal(report.atkPower)} vs 🛡️${fmtLocal(report.defPower)}${lootMsg}${defLossMsg?' | pertes: '+defLossMsg:''}`, report.victory ? 'defeat' : 'victory');
 
-      // Afficher le rapport de combat pour le défenseur
       showCombatReport(report, false, atk.attackerName, atk.attackerPlanet);
-
-      await updateDoc(doc(db, 'attacks', attackSnap.id), {
-        status: 'resolved',
-        result: { victory: report.victory, atkPower: report.atkPower, defPower: report.defPower, atkLosses: report.atkLosses, defLosses: report.defLosses, loot: report.loot }
-      });
     }
 
-    // Attaques ENVOYÉES — récupère les résultats
+        // Attaques ENVOYÉES — récupère les résultats
     const sentSnap = await getDocs(query(collection(db, 'attacks'),
       where('attackerUid', '==', currentUser.uid),
       where('status', '==', 'resolved')
