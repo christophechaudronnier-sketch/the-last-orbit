@@ -1049,7 +1049,7 @@ function makeAIGame(profile, coordIndex) {
     commanderName: profile.commanderName,
     turn: 1,
     nextTurnTime: nextMidnight(),
-    resources: { metal: 5000, crystal: 2000, energy: 500 },
+    resources: { metal: 3000, crystal: 1000, energy: 200 },
     research: { combustion:0, weapons:0, shields:0, espionage:0, hyperdrive:0, colonization:0 },
     planets: [{
       name: profile.planetName,
@@ -1204,13 +1204,13 @@ function aiDecide(ai) {
       if (aiCanAfford(ai, cost)) actions.push({ type:'building', b, cost });
     }
     // Construire des chasseurs
-    const shipCost = { metal:800, crystal:300, energy:0 };
+    const shipCost = { metal:200, crystal:60, energy:0 };
     if ((blds.shipyard||0) >= 1 && aiCanAfford(ai, shipCost)) {
       actions.push({ type:'ship', id:'fighter', name:'Chasseur', cost: shipCost, qty:1 });
     }
     // Croiseurs si possible
     if ((blds.shipyard||0) >= 2 && (res.combustion||0) >= 1) {
-      const cruiserCost = { metal:5000, crystal:1800, energy:500 };
+      const cruiserCost = { metal:1000, crystal:400, energy:100 };
       if (aiCanAfford(ai, cruiserCost)) {
         actions.push({ type:'ship', id:'cruiser', name:'Croiseur', cost: cruiserCost, qty:1 });
       }
@@ -1227,7 +1227,7 @@ function aiDecide(ai) {
     }
     // Construire colonisateur
     if ((blds.shipyard||0) >= 2 && (fleet.colonizer||0) === 0) {
-      const colCost = { metal:2500, crystal:5000, energy:250 };
+      const colCost = { metal:600, crystal:1000, energy:50 };
       if (aiCanAfford(ai, colCost)) {
         actions.push({ type:'ship', id:'colonizer', name:'Colonisateur', cost: colCost, qty:1 });
       }
@@ -1246,7 +1246,7 @@ function aiDecide(ai) {
     }
   });
 
-  return actions.slice(0, 3); // max 3 actions par tour
+  return actions; // toutes les actions décidées, comme la file humaine
 }
 
 function getBuildingCostAI(b, lv) {
@@ -2990,9 +2990,7 @@ async function renderRanking() {
     ...players.map(p => ({
       uid: p.uid,
       commanderName: p.commanderName || '???',
-      // Recalcule le score à la volée pour avoir une valeur toujours à jour
-      // (utile surtout pour les IA dont le score stocké peut être périmé)
-      score: computeScore(p),
+      score: p.score || 0,
       planets: p.planets || [],
       research: p.research || {},
       combatWins: p.combatWins || 0,
