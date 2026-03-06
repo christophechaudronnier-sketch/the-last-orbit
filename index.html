@@ -757,12 +757,14 @@ function maxPlanets() {
 }
 
 // ========== SCORE ==========
-function computeScore() {
-  if (!G) return 0;
+function computeScore(data) {
+  // Accepte un objet data (IA) ou utilise G (joueur humain)
+  const d = data || G;
+  if (!d) return 0;
   let spent = 0;
 
   // Bâtiments : coût du niveau × nombre de niveaux (toutes planètes)
-  (G.planets||[]).forEach(planet => {
+  (d.planets||[]).forEach(planet => {
     BUILDINGS.forEach(b => {
       const lv = (planet.buildings||{})[b.id] || 0;
       if (!lv) return;
@@ -773,14 +775,14 @@ function computeScore() {
 
   // Recherches : coût du niveau × nombre de niveaux
   RESEARCH.forEach(r => {
-    const lv = (G.research||{})[r.id] || 0;
+    const lv = (d.research||{})[r.id] || 0;
     if (!lv) return;
     const base = (r.costBase.metal||0) + (r.costBase.crystal||0) + (r.costBase.energy||0);
     spent += base * lv;
   });
 
   // Flotte : coût de construction × quantité (toutes planètes)
-  (G.planets||[]).forEach(planet => {
+  (d.planets||[]).forEach(planet => {
     SHIPS.forEach(s => {
       const qty = (planet.fleet||{})[s.id] || 0;
       if (!qty) return;
@@ -790,21 +792,21 @@ function computeScore() {
   });
 
   // Défenses : coût × quantité (toutes planètes)
-  (G.planets||[]).forEach(planet => {
-    DEFENSES.forEach(d => {
-      const qty = (planet.defense||{})[d.id] || 0;
+  (d.planets||[]).forEach(planet => {
+    DEFENSES.forEach(d2 => {
+      const qty = (planet.defense||{})[d2.id] || 0;
       if (!qty) return;
-      const base = (d.cost.metal||0) + (d.cost.crystal||0) + (d.cost.energy||0);
+      const base = (d2.cost.metal||0) + (d2.cost.crystal||0) + (d2.cost.energy||0);
       spent += base * qty;
     });
   });
 
   // Colonies (hors planète principale) : bonus fixe
-  const colonies = (G.planets||[]).length - 1;
+  const colonies = (d.planets||[]).length - 1;
   spent += Math.max(0, colonies) * 50000;
 
   // Ressources en stock × 0.1
-  const res = G.resources || {};
+  const res = d.resources || {};
   const stockBonus = ((res.metal||0) + (res.crystal||0) + (res.energy||0)) * 0.1;
 
   return Math.floor((spent + stockBonus) / 100);
@@ -1133,19 +1135,8 @@ function aiMeetsReqs(ai, requires) {
 
 // Calcule le score d'une IA
 function computeAIScore(ai) {
-  let score = 0;
-  const res = ai.resources||{};
-  score += Math.floor(((res.metal||0) + (res.crystal||0)*2 + (res.energy||0)) / 100);
-  (ai.planets||[]).forEach(planet => {
-    Object.values(planet.buildings||{}).forEach(lv => { score += (lv||0)*50; });
-  });
-  Object.values(ai.research||{}).forEach(lv => { score += (lv||0)*200; });
-  (ai.planets||[]).forEach(planet => {
-    const fl = planet.fleet||{};
-    score += (fl.fighter||0)*10 + (fl.cruiser||0)*50 + (fl.battleship||0)*200 + (fl.colonizer||0)*30;
-  });
-  score += Math.max(0,(ai.planets||[]).length-1)*1000;
-  return Math.floor(score);
+  // Même barème que les joueurs humains
+  return computeScore(ai);
 }
 
 // Décision IA : que construire ce tour ?
