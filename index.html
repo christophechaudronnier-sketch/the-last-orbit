@@ -2990,7 +2990,9 @@ async function renderRanking() {
     ...players.map(p => ({
       uid: p.uid,
       commanderName: p.commanderName || '???',
-      score: p.score || 0,
+      // Recalcule le score à la volée pour avoir une valeur toujours à jour
+      // (utile surtout pour les IA dont le score stocké peut être périmé)
+      score: computeScore(p),
       planets: p.planets || [],
       research: p.research || {},
       combatWins: p.combatWins || 0,
