@@ -893,6 +893,26 @@ async function processTurn() {
   if (_processingTurn) return;
   _processingTurn = true;
   try {
+    // Recharger G depuis Firestore pour éviter le double tour :
+    // la Cloud Function a peut-être déjà traité ce tour pendant que
+    // l'onglet était ouvert (G en mémoire = version périmée).
+    try {
+      const freshDoc = await getDoc(doc(db, 'players', currentUser.uid));
+      if (freshDoc.exists()) {
+        const freshG = freshDoc.data();
+        if (freshG.nextTurnTime && Date.now() < freshG.nextTurnTime) {
+          // La CF a déjà avancé nextTurnTime → on synchronise et on sort
+          Object.assign(G, freshG);
+          console.log('processTurn: tour déjà traité par la Cloud Function, synchronisation.');
+          return;
+        }
+        // Sinon on repart de la version fraîche (évite les données périmées)
+        Object.assign(G, freshG);
+      }
+    } catch(syncErr) {
+      console.warn('processTurn: impossible de recharger depuis Firestore, on continue avec G local.', syncErr);
+    }
+
     const missedTurns = countMissedTurns();
     if (missedTurns === 0) return;
 
