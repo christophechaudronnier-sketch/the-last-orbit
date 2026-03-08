@@ -2136,19 +2136,19 @@ function _updateMsgBadge(count) {
 
 function _startMsgListener() {
   if (_msgUnsub) return; // déjà actif
-  const uid = firebase.auth().currentUser?.uid;
+  const uid = currentUser?.uid;
   if (!uid) return;
-  _msgUnsub = db.collection('messages')
-    .where('to', '==', uid)
-    .where('read', '==', false)
-    .onSnapshot(snap => {
-      _updateMsgBadge(snap.size);
-    });
+  const q = query(collection(db, 'messages'),
+    where('to', '==', uid),
+    where('read', '==', false));
+  _msgUnsub = onSnapshot(q, snap => {
+    _updateMsgBadge(snap.size);
+  });
 }
 
 async function renderMessages() {
   _startMsgListener();
-  const uid = firebase.auth().currentUser?.uid;
+  const uid = currentUser?.uid;
   if (!uid) return;
 
   // reset detail
@@ -2166,17 +2166,19 @@ async function renderMessages() {
 
   let snap;
   if (_msgTab === 'inbox') {
-    snap = await db.collection('messages').where('to', '==', uid).orderBy('timestamp', 'desc').get();
+    snap = await getDocs(query(collection(db, 'messages'), where('to', '==', uid), where('timestamp', '!=', null)));
   } else {
-    snap = await db.collection('messages').where('from', '==', uid).orderBy('timestamp', 'desc').get();
+    snap = await getDocs(query(collection(db, 'messages'), where('from', '==', uid), where('timestamp', '!=', null)));
   }
 
-  if (snap.empty) {
+  const docs = snap.docs.sort((a,b) => (b.data().timestamp?.seconds||0) - (a.data().timestamp?.seconds||0));
+
+  if (!docs.length) {
     listEl.innerHTML = '<div style="color:#aaa;text-align:center;padding:40px">Aucun message.</div>';
     return;
   }
 
-  listEl.innerHTML = snap.docs.map(doc => {
+  listEl.innerHTML = docs.map(doc => {
     const m = doc.data();
     const d = m.timestamp?.toDate ? m.timestamp.toDate() : new Date();
     const dateStr = d.toLocaleDateString('fr-FR') + ' ' + d.toLocaleTimeString('fr-FR', {hour:'2-digit', minute:'2-digit'});
@@ -2202,8 +2204,8 @@ window._openNewMsg = async function() {
     document.getElementById('msg-subject').value = '';
     document.getElementById('msg-body').value = '';
     document.getElementById('msg-compose').style.display = 'block';
-    const uid = firebase.auth().currentUser?.uid;
-    const snap = await db.collection('players').get();
+    const uid = currentUser?.uid;
+    const snap = await getDocs(collection(db, 'players'));
     const select = document.getElementById('msg-to');
     const options = snap.docs
       .filter(d => d.id !== uid && !d.id.startsWith('ai_'))
@@ -2220,14 +2222,14 @@ window._openNewMsg = async function() {
 };
 
 window._sendPrivateMsg = async function() {
-  const uid = firebase.auth().currentUser?.uid;
+  const uid = currentUser?.uid;
   if (!uid) return;
   const toId = document.getElementById('msg-to').value;
   const toName = document.getElementById('msg-to').selectedOptions[0]?.text || '';
   const subject = document.getElementById('msg-subject').value.trim();
   const body = document.getElementById('msg-body').value.trim();
   if (!body) { notify('Le message ne peut pas être vide.', true); return; }
-  await db.collection('messages').add({
+  await addDoc(collection(db, 'messages'), {
     from: uid,
     fromName: G.commanderName || G.planets[0]?.name || uid,
     to: toId,
@@ -2235,7 +2237,7 @@ window._sendPrivateMsg = async function() {
     subject: subject || '(sans sujet)',
     body,
     read: false,
-    timestamp: firebase.firestore.FieldValue.serverTimestamp()
+    timestamp: serverTimestamp()
   });
   document.getElementById('msg-compose').style.display = 'none';
   notify('Message envoyé !');
@@ -2244,13 +2246,13 @@ window._sendPrivateMsg = async function() {
 };
 
 window._openMsgDetail = async function(docId) {
-  const uid = firebase.auth().currentUser?.uid;
-  const ref = db.collection('messages').doc(docId);
-  const snap = await ref.get();
-  if (!snap.exists) return;
+  const uid = currentUser?.uid;
+  const ref = doc(db, 'messages', docId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return;
   const m = snap.data();
   // marquer comme lu si destinataire
-  if (m.to === uid && !m.read) await ref.update({ read: false ? false : true });
+  if (m.to === uid && !m.read) await updateDoc(ref, { read: true });
   const d = m.timestamp?.toDate ? m.timestamp.toDate() : new Date();
   const dateStr = d.toLocaleDateString('fr-FR') + ' ' + d.toLocaleTimeString('fr-FR', {hour:'2-digit', minute:'2-digit'});
   document.getElementById('msg-detail-content').innerHTML = `
@@ -2284,7 +2286,7 @@ window._replyMsg = async function(toId, toName, originalSubject) {
 
 window._deleteMsg = async function(docId) {
   if (!confirm('Supprimer ce message ?')) return;
-  await db.collection('messages').doc(docId).delete();
+  await deleteDoc(doc(db, 'messages', docId));
   renderMessages();
 };
 
