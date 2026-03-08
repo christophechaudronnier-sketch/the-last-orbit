@@ -2121,6 +2121,169 @@ window._sendAllianceMessage = async () => {
   inp.value = '';
 };
 
+// ============================================================
+// MESSAGES PRIVÉS
+// ============================================================
+let _msgTab = 'inbox';
+let _msgUnsub = null;
+
+function _updateMsgBadge(count) {
+  const badge = document.getElementById('msg-badge');
+  if (!badge) return;
+  if (count > 0) { badge.textContent = count; badge.style.display = 'inline'; }
+  else { badge.style.display = 'none'; }
+}
+
+function _startMsgListener() {
+  if (_msgUnsub) return; // déjà actif
+  const uid = firebase.auth().currentUser?.uid;
+  if (!uid) return;
+  _msgUnsub = db.collection('messages')
+    .where('to', '==', uid)
+    .where('read', '==', false)
+    .onSnapshot(snap => {
+      _updateMsgBadge(snap.size);
+    });
+}
+
+async function renderMessages() {
+  _startMsgListener();
+  const uid = firebase.auth().currentUser?.uid;
+  if (!uid) return;
+
+  // reset detail
+  document.getElementById('msg-detail').style.display = 'none';
+  document.getElementById('msg-compose').style.display = 'none';
+
+  // style des onglets
+  document.getElementById('tab-inbox').style.background = _msgTab === 'inbox' ? 'var(--accent)' : 'transparent';
+  document.getElementById('tab-inbox').style.color = _msgTab === 'inbox' ? '#000' : 'var(--accent)';
+  document.getElementById('tab-sent').style.background = _msgTab === 'sent' ? 'var(--accent)' : 'transparent';
+  document.getElementById('tab-sent').style.color = _msgTab === 'sent' ? '#000' : 'var(--accent)';
+
+  const listEl = document.getElementById('msg-list');
+  listEl.innerHTML = '<div style="color:#aaa;text-align:center;padding:20px">Chargement…</div>';
+
+  let snap;
+  if (_msgTab === 'inbox') {
+    snap = await db.collection('messages').where('to', '==', uid).orderBy('timestamp', 'desc').get();
+  } else {
+    snap = await db.collection('messages').where('from', '==', uid).orderBy('timestamp', 'desc').get();
+  }
+
+  if (snap.empty) {
+    listEl.innerHTML = '<div style="color:#aaa;text-align:center;padding:40px">Aucun message.</div>';
+    return;
+  }
+
+  listEl.innerHTML = snap.docs.map(doc => {
+    const m = doc.data();
+    const d = m.timestamp?.toDate ? m.timestamp.toDate() : new Date();
+    const dateStr = d.toLocaleDateString('fr-FR') + ' ' + d.toLocaleTimeString('fr-FR', {hour:'2-digit', minute:'2-digit'});
+    const unread = _msgTab === 'inbox' && !m.read;
+    return `<div onclick="window._openMsgDetail('${doc.id}')" style="cursor:pointer;background:rgba(255,255,255,.03);border:1px solid ${unread?'var(--accent)':'#333'};border-radius:6px;padding:12px 16px;margin-bottom:8px;display:flex;align-items:center;gap:12px">
+      <div style="flex:1">
+        <div style="font-weight:${unread?'700':'400'};color:${unread?'var(--accent)':'#eee'};margin-bottom:2px">${unread?'● ':''}${m.subject||'(sans sujet)'}</div>
+        <div style="font-size:.8rem;color:#888">${_msgTab==='inbox'?'De : '+m.fromName : 'À : '+m.toName} — ${dateStr}</div>
+      </div>
+      ${_msgTab==='inbox'?`<button onclick="event.stopPropagation();window._deleteMsg('${doc.id}')" style="background:transparent;border:none;color:#666;cursor:pointer;font-size:1.1rem" title="Supprimer">🗑️</button>`:''}
+    </div>`;
+  }).join('');
+}
+
+window._showMsgTab = function(tab) {
+  _msgTab = tab;
+  renderMessages();
+};
+
+window._openNewMsg = async function() {
+  document.getElementById('msg-detail').style.display = 'none';
+  // remplir la liste des joueurs humains
+  const snap = await db.collection('players').get();
+  const uid = firebase.auth().currentUser?.uid;
+  const select = document.getElementById('msg-to');
+  select.innerHTML = snap.docs
+    .filter(d => d.id !== uid && !d.id.startsWith('ai_'))
+    .map(d => `<option value="${d.id}">${d.data().commanderName||d.data().planetName||d.id}</option>`)
+    .join('');
+  if (!select.options.length) {
+    notify('Aucun autre joueur humain pour le moment.', true);
+    return;
+  }
+  document.getElementById('msg-subject').value = '';
+  document.getElementById('msg-body').value = '';
+  document.getElementById('msg-compose').style.display = 'block';
+};
+
+window._sendPrivateMsg = async function() {
+  const uid = firebase.auth().currentUser?.uid;
+  if (!uid) return;
+  const toId = document.getElementById('msg-to').value;
+  const toName = document.getElementById('msg-to').selectedOptions[0]?.text || '';
+  const subject = document.getElementById('msg-subject').value.trim();
+  const body = document.getElementById('msg-body').value.trim();
+  if (!body) { notify('Le message ne peut pas être vide.', true); return; }
+  await db.collection('messages').add({
+    from: uid,
+    fromName: G.commanderName || G.planets[0]?.name || uid,
+    to: toId,
+    toName: toName,
+    subject: subject || '(sans sujet)',
+    body,
+    read: false,
+    timestamp: firebase.firestore.FieldValue.serverTimestamp()
+  });
+  document.getElementById('msg-compose').style.display = 'none';
+  notify('Message envoyé !');
+  _msgTab = 'sent';
+  renderMessages();
+};
+
+window._openMsgDetail = async function(docId) {
+  const uid = firebase.auth().currentUser?.uid;
+  const ref = db.collection('messages').doc(docId);
+  const snap = await ref.get();
+  if (!snap.exists) return;
+  const m = snap.data();
+  // marquer comme lu si destinataire
+  if (m.to === uid && !m.read) await ref.update({ read: false ? false : true });
+  const d = m.timestamp?.toDate ? m.timestamp.toDate() : new Date();
+  const dateStr = d.toLocaleDateString('fr-FR') + ' ' + d.toLocaleTimeString('fr-FR', {hour:'2-digit', minute:'2-digit'});
+  document.getElementById('msg-detail-content').innerHTML = `
+    <div style="font-size:1.1rem;font-weight:700;color:var(--accent);margin-bottom:8px">${m.subject}</div>
+    <div style="font-size:.8rem;color:#888;margin-bottom:16px">De : ${m.fromName} → ${m.toName} — ${dateStr}</div>
+    <div style="line-height:1.6;white-space:pre-wrap">${m.body}</div>
+    ${m.to===uid?`<div style="margin-top:16px"><button class="btn" onclick="window._replyMsg('${m.from}','${m.fromName}','${(m.subject||'').replace(/'/g,"\\'")}')">↩️ Répondre</button></div>`:''}
+  `;
+  document.getElementById('msg-detail').style.display = 'block';
+  document.getElementById('msg-list').style.display = 'none';
+  document.querySelector('#page-messages > div:first-of-type').style.display = 'none';
+};
+
+window._closeMsgDetail = function() {
+  document.getElementById('msg-detail').style.display = 'none';
+  document.getElementById('msg-list').style.display = 'block';
+  document.querySelector('#page-messages > div:first-of-type').style.display = 'flex';
+  renderMessages();
+};
+
+window._replyMsg = async function(toId, toName, originalSubject) {
+  window._closeMsgDetail();
+  await window._openNewMsg();
+  // pré-remplir destinataire et sujet
+  const select = document.getElementById('msg-to');
+  for (let opt of select.options) { if (opt.value === toId) { opt.selected = true; break; } }
+  const prefix = originalSubject.startsWith('Re: ') ? '' : 'Re: ';
+  document.getElementById('msg-subject').value = prefix + originalSubject;
+  document.getElementById('msg-compose').style.display = 'block';
+};
+
+window._deleteMsg = async function(docId) {
+  if (!confirm('Supprimer ce message ?')) return;
+  await db.collection('messages').doc(docId).delete();
+  renderMessages();
+};
+
 async function renderAlliance() {
   const el = document.getElementById('alliance-content');
   if (!el) return;
@@ -2279,6 +2442,7 @@ function renderPage(id) {
   else if (id==='galaxy') renderGalaxy();
   else if (id==='market') { window._marketTab = window._marketTab||'public'; renderMarket(); }
   else if (id==='alliance') renderAlliance();
+  else if (id==='messages') renderMessages();
   else if (id==='ranking') renderRanking();
   else { updateUI(); renderAttackStatus('overview'); }
 }
@@ -3804,6 +3968,7 @@ function showGameScreen() {
   setInterval(updateSeasonUI, 60000);
   updateCountdown();
   startPlayerListener();
+  _startMsgListener();
   initAIPlayers();
   loadSeason().then(() => updateSeasonUI());
 }
@@ -4166,6 +4331,7 @@ window._notify = notify;
       <button class="nav-btn" onclick="window._showPage('ranking')" id="nav-ranking"><span class="nav-icon">🏆</span><span>Classement</span></button>
       <button class="nav-btn" onclick="window._showPage('market')" id="nav-market"><span class="nav-icon">💱</span><span data-tkey="market">Marché</span></button>
       <button class="nav-btn" onclick="window._showPage('alliance')" id="nav-alliance"><span class="nav-icon">🤝</span><span data-tkey="alliance">Alliance</span></button>
+      <button class="nav-btn" onclick="window._showPage('messages')" id="nav-messages"><span class="nav-icon">✉️</span><span>Messages</span><span id="msg-badge" style="display:none;background:var(--danger);color:#fff;border-radius:10px;padding:1px 6px;font-size:.7rem;margin-left:4px">0</span></button>
       <button class="nav-btn" onclick="window._showPage('log')" id="nav-log"><span class="nav-icon">📜</span><span data-tkey="log">Journal</span></button>
     </nav>
 
@@ -4292,6 +4458,40 @@ window._notify = notify;
         <div class="page-title" data-tkey="log">Journal</div>
         <div class="page-subtitle">Historique de vos actions.</div>
         <div id="log-display"></div>
+      </div>
+
+      <div class="page" id="page-messages">
+        <div class="page-title">✉️ Messages Privés</div>
+        <div class="page-subtitle">Communiquez avec les autres commandants.</div>
+        <div style="display:flex;gap:10px;margin-bottom:16px">
+          <button class="btn" onclick="window._showMsgTab('inbox')" id="tab-inbox" style="padding:8px 18px">📥 Réception</button>
+          <button class="btn" onclick="window._showMsgTab('sent')" id="tab-sent" style="padding:8px 18px;background:transparent;border:1px solid var(--accent);color:var(--accent)">📤 Envoyés</button>
+          <button class="btn" onclick="window._openNewMsg()" style="padding:8px 18px;margin-left:auto">✏️ Nouveau message</button>
+        </div>
+        <div id="msg-compose" style="display:none;background:rgba(0,200,255,.05);border:1px solid var(--accent);border-radius:6px;padding:16px;margin-bottom:16px">
+          <div style="margin-bottom:10px;font-weight:600;color:var(--accent)">Nouveau message</div>
+          <div style="margin-bottom:8px">
+            <label style="font-size:.8rem;color:#aaa">Destinataire</label>
+            <select id="msg-to" style="width:100%;background:#111;color:#eee;border:1px solid #444;padding:8px;border-radius:4px;margin-top:4px"></select>
+          </div>
+          <div style="margin-bottom:8px">
+            <label style="font-size:.8rem;color:#aaa">Sujet</label>
+            <input id="msg-subject" type="text" maxlength="80" placeholder="Sujet..." style="width:100%;background:#111;color:#eee;border:1px solid #444;padding:8px;border-radius:4px;margin-top:4px;box-sizing:border-box">
+          </div>
+          <div style="margin-bottom:12px">
+            <label style="font-size:.8rem;color:#aaa">Message</label>
+            <textarea id="msg-body" rows="4" maxlength="1000" placeholder="Votre message..." style="width:100%;background:#111;color:#eee;border:1px solid #444;padding:8px;border-radius:4px;margin-top:4px;box-sizing:border-box;resize:vertical"></textarea>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn" onclick="window._sendPrivateMsg()" style="padding:8px 20px">Envoyer</button>
+            <button onclick="document.getElementById('msg-compose').style.display='none'" style="padding:8px 16px;background:transparent;border:1px solid #555;color:#aaa;cursor:pointer;border-radius:4px">Annuler</button>
+          </div>
+        </div>
+        <div id="msg-detail" style="display:none;background:rgba(0,200,255,.05);border:1px solid var(--accent);border-radius:6px;padding:16px;margin-bottom:16px">
+          <button onclick="window._closeMsgDetail()" style="background:transparent;border:none;color:var(--accent);cursor:pointer;margin-bottom:10px">← Retour</button>
+          <div id="msg-detail-content"></div>
+        </div>
+        <div id="msg-list"></div>
       </div>
 
       <div class="page" id="page-alliance">
