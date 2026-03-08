@@ -1101,7 +1101,7 @@ async function initAIPlayers() {
 
 // Calcule la production pour une IA (même logique que getProduction mais sans G)
 function getAIProduction(ai) {
-  const prod = { metal:20, crystal:10, energy:10 };
+  const prod = { metal:200, crystal:100, energy:100 };
   (ai.planets||[]).forEach(planet => {
     BUILDINGS.forEach(b => {
       const lv = (planet.buildings||{})[b.id]||0;
