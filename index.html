@@ -2197,22 +2197,26 @@ window._showMsgTab = function(tab) {
 };
 
 window._openNewMsg = async function() {
-  document.getElementById('msg-detail').style.display = 'none';
-  // remplir la liste des joueurs humains
-  const snap = await db.collection('players').get();
-  const uid = firebase.auth().currentUser?.uid;
-  const select = document.getElementById('msg-to');
-  select.innerHTML = snap.docs
-    .filter(d => d.id !== uid && !d.id.startsWith('ai_'))
-    .map(d => `<option value="${d.id}">${d.data().commanderName||d.data().planetName||d.id}</option>`)
-    .join('');
-  if (!select.options.length) {
-    notify('Aucun autre joueur humain pour le moment.', true);
-    return;
+  try {
+    document.getElementById('msg-detail').style.display = 'none';
+    document.getElementById('msg-subject').value = '';
+    document.getElementById('msg-body').value = '';
+    document.getElementById('msg-compose').style.display = 'block';
+    const uid = firebase.auth().currentUser?.uid;
+    const snap = await db.collection('players').get();
+    const select = document.getElementById('msg-to');
+    const options = snap.docs
+      .filter(d => d.id !== uid && !d.id.startsWith('ai_'))
+      .map(d => `<option value="${d.id}">${d.data().commanderName||d.data().planetName||d.id}</option>`);
+    if (!options.length) {
+      select.innerHTML = '<option disabled selected>Aucun autre joueur humain</option>';
+    } else {
+      select.innerHTML = options.join('');
+    }
+  } catch(e) {
+    console.error('_openNewMsg error:', e);
+    notify('Erreur lors du chargement des joueurs.', true);
   }
-  document.getElementById('msg-subject').value = '';
-  document.getElementById('msg-body').value = '';
-  document.getElementById('msg-compose').style.display = 'block';
 };
 
 window._sendPrivateMsg = async function() {
