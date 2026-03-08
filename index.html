@@ -2166,9 +2166,9 @@ async function renderMessages() {
 
   let snap;
   if (_msgTab === 'inbox') {
-    snap = await getDocs(query(collection(db, 'messages'), where('to', '==', uid), where('timestamp', '!=', null)));
+    snap = await getDocs(query(collection(db, 'messages'), where('to', '==', uid)));
   } else {
-    snap = await getDocs(query(collection(db, 'messages'), where('from', '==', uid), where('timestamp', '!=', null)));
+    snap = await getDocs(query(collection(db, 'messages'), where('from', '==', uid)));
   }
 
   const docs = snap.docs.sort((a,b) => (b.data().timestamp?.seconds||0) - (a.data().timestamp?.seconds||0));
