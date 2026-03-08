@@ -198,6 +198,40 @@ const T = {
     availableAlliances: "Alliances disponibles",
     noAvailableAlliances: "Aucune alliance ouverte pour le moment.",
     messagePlaceholder: "Tapez un message...",
+    // Landing page
+    landingSubtitle: "Stratégie spatiale · Saisons de 90 jours · Un tour par jour",
+    landingCta: "⚡ REJOINDRE LA SAISON",
+    landingConceptP: "Dans un secteur galactique en guerre, chaque commandant dispose d'une planète, de ressources et d'ambitions. <strong>5 minutes par jour suffisent.</strong> Construisez, recherchez, colonisez, attaquez — ou forgez des alliances. Au bout de <strong>90 jours</strong>, le meilleur empire l'emporte.",
+    landingF1Title: "Empire", landingF1Desc: "Construisez vos mines, laboratoires et chantiers navals. Chaque bâtiment compte.",
+    landingF2Title: "Recherche", landingF2Desc: "Débloquez des technologies militaires et de colonisation pour dominer la galaxie.",
+    landingF3Title: "Conquête", landingF3Desc: "Flotte, combats, colonisation de planètes. La guerre se joue aussi dans l'espace.",
+    landingF4Title: "Diplomatie", landingF4Desc: "Alliances, messages privés, forum RP. La politique est une arme comme une autre.",
+    landingF5Title: "Sans addiction", landingF5Desc: "Un seul tour par jour, traité à minuit. Pas de pay-to-win, pas d'accélérateurs.",
+    landingF6Title: "Saisons", landingF6Desc: "90 tours, un vainqueur. Le Hall of Fame archive chaque saison pour l'éternité.",
+    // Messages privés
+    privateMessages: "Messages Privés",
+    privateMessagesSub: "Communiquez avec les autres commandants.",
+    msgInbox: "📥 Réception",
+    msgSent: "📤 Envoyés",
+    msgNew: "✏️ Nouveau message",
+    msgTo: "Destinataire",
+    msgSubject: "Sujet",
+    msgBody: "Message",
+    msgSend: "Envoyer",
+    msgReply: "↩️ Répondre",
+    msgNoOtherPlayers: "Aucun autre joueur humain",
+    msgEmpty: "Aucun message.",
+    msgSentOk: "Message envoyé !",
+    msgEmptyBody: "Le message ne peut pas être vide.",
+    // Forum RP
+    forumTitle: "Forum RP",
+    forumSub: "Transmissions interceptées dans le secteur. Exprimez-vous, commandants.",
+    forumNewThread: "✏️ Nouveau sujet",
+    forumNoThreads: "Aucun sujet pour le moment. Soyez le premier !",
+    forumReply: "Envoyer",
+    forumTitleRequired: "Le sujet doit avoir un titre.",
+    forumBodyRequired: "Le premier message ne peut pas être vide.",
+    forumCreated: "Sujet créé !",
   },
   en: {
     title: "THE LAST ORBIT",
@@ -370,6 +404,40 @@ const T = {
     availableAlliances: "Available Alliances",
     noAvailableAlliances: "No open alliances at the moment.",
     messagePlaceholder: "Type a message...",
+    // Landing page
+    landingSubtitle: "Space strategy · 90-day seasons · One turn per day",
+    landingCta: "⚡ JOIN THE SEASON",
+    landingConceptP: "In a war-torn galactic sector, every commander starts with one planet, resources, and ambition. <strong>5 minutes a day is all it takes.</strong> Build, research, colonize, attack — or forge alliances. After <strong>90 days</strong>, the best empire wins.",
+    landingF1Title: "Empire", landingF1Desc: "Build your mines, labs and shipyards. Every building counts.",
+    landingF2Title: "Research", landingF2Desc: "Unlock military and colonization technologies to dominate the galaxy.",
+    landingF3Title: "Conquest", landingF3Desc: "Fleet, combat, planet colonization. War is also fought in space.",
+    landingF4Title: "Diplomacy", landingF4Desc: "Alliances, private messages, RP forum. Politics is a weapon like any other.",
+    landingF5Title: "No addiction", landingF5Desc: "One turn per day, processed at midnight. No pay-to-win, no boosters.",
+    landingF6Title: "Seasons", landingF6Desc: "90 turns, one winner. The Hall of Fame archives every season for eternity.",
+    // Private messages
+    privateMessages: "Private Messages",
+    privateMessagesSub: "Communicate with other commanders.",
+    msgInbox: "📥 Inbox",
+    msgSent: "📤 Sent",
+    msgNew: "✏️ New message",
+    msgTo: "Recipient",
+    msgSubject: "Subject",
+    msgBody: "Message",
+    msgSend: "Send",
+    msgReply: "↩️ Reply",
+    msgNoOtherPlayers: "No other human players",
+    msgEmpty: "No messages.",
+    msgSentOk: "Message sent!",
+    msgEmptyBody: "Message cannot be empty.",
+    // RP Forum
+    forumTitle: "RP Forum",
+    forumSub: "Intercepted transmissions in the sector. Speak up, commanders.",
+    forumNewThread: "✏️ New topic",
+    forumNoThreads: "No topics yet. Be the first!",
+    forumReply: "Send",
+    forumTitleRequired: "The topic must have a title.",
+    forumBodyRequired: "The first message cannot be empty.",
+    forumCreated: "Topic created!",
   }
 };
 
@@ -4456,13 +4524,13 @@ window._notify = notify;
   <!-- HERO -->
   <div class="landing-hero">
     <div class="landing-hero-title">THE LAST <span>ORBIT</span></div>
-    <div class="landing-hero-sub">Stratégie spatiale · Saisons de 90 jours · Un tour par jour</div>
-    <a href="#auth-form" class="landing-cta">⚡ REJOINDRE LA SAISON</a>
+    <div class="landing-hero-sub" id="landing-subtitle">Stratégie spatiale · Saisons de 90 jours · Un tour par jour</div>
+    <a href="#auth-form" class="landing-cta" id="landing-cta">⚡ REJOINDRE LA SAISON</a>
   </div>
 
   <!-- CONCEPT -->
   <div class="landing-concept">
-    <p>Dans un secteur galactique en guerre, chaque commandant dispose d'une planète, de ressources et d'ambitions.
+    <p id="landing-concept-p">Dans un secteur galactique en guerre, chaque commandant dispose d'une planète, de ressources et d'ambitions.
     <strong>5 minutes par jour suffisent.</strong> Construisez, recherchez, colonisez, attaquez —
     ou forgez des alliances. Au bout de <strong>90 jours</strong>, le meilleur empire l'emporte.</p>
   </div>
@@ -4471,33 +4539,33 @@ window._notify = notify;
   <div class="landing-features">
     <div class="landing-feature-card">
       <div class="landing-feature-icon">🏗️</div>
-      <div class="landing-feature-title">Empire</div>
-      <div class="landing-feature-desc">Construisez vos mines, laboratoires et chantiers navals. Chaque bâtiment compte.</div>
+      <div class="landing-feature-title" id="lf1t">Empire</div>
+      <div class="landing-feature-desc" id="lf1d">Construisez vos mines, laboratoires et chantiers navals. Chaque bâtiment compte.</div>
     </div>
     <div class="landing-feature-card">
       <div class="landing-feature-icon">🔬</div>
-      <div class="landing-feature-title">Recherche</div>
-      <div class="landing-feature-desc">Débloquez des technologies militaires et de colonisation pour dominer la galaxie.</div>
+      <div class="landing-feature-title" id="lf2t">Recherche</div>
+      <div class="landing-feature-desc" id="lf2d">Débloquez des technologies militaires et de colonisation pour dominer la galaxie.</div>
     </div>
     <div class="landing-feature-card">
       <div class="landing-feature-icon">🚀</div>
-      <div class="landing-feature-title">Conquête</div>
-      <div class="landing-feature-desc">Flotte, combats, colonisation de planètes. La guerre se joue aussi dans l'espace.</div>
+      <div class="landing-feature-title" id="lf3t">Conquête</div>
+      <div class="landing-feature-desc" id="lf3d">Flotte, combats, colonisation de planètes. La guerre se joue aussi dans l'espace.</div>
     </div>
     <div class="landing-feature-card">
       <div class="landing-feature-icon">🤝</div>
-      <div class="landing-feature-title">Diplomatie</div>
-      <div class="landing-feature-desc">Alliances, messages privés, forum RP. La politique est une arme comme une autre.</div>
+      <div class="landing-feature-title" id="lf4t">Diplomatie</div>
+      <div class="landing-feature-desc" id="lf4d">Alliances, messages privés, forum RP. La politique est une arme comme une autre.</div>
     </div>
     <div class="landing-feature-card">
       <div class="landing-feature-icon">⏱️</div>
-      <div class="landing-feature-title">Sans addiction</div>
-      <div class="landing-feature-desc">Un seul tour par jour, traité à minuit. Pas de pay-to-win, pas d'accélérateurs.</div>
+      <div class="landing-feature-title" id="lf5t">Sans addiction</div>
+      <div class="landing-feature-desc" id="lf5d">Un seul tour par jour, traité à minuit. Pas de pay-to-win, pas d'accélérateurs.</div>
     </div>
     <div class="landing-feature-card">
       <div class="landing-feature-icon">🏆</div>
-      <div class="landing-feature-title">Saisons</div>
-      <div class="landing-feature-desc">90 tours, un vainqueur. Le Hall of Fame archive chaque saison pour l'éternité.</div>
+      <div class="landing-feature-title" id="lf6t">Saisons</div>
+      <div class="landing-feature-desc" id="lf6d">90 tours, un vainqueur. Le Hall of Fame archive chaque saison pour l'éternité.</div>
     </div>
   </div>
 
@@ -4834,6 +4902,22 @@ window._notify = notify;
     document.querySelector('.auth-btn-secondary').textContent='CREATE ACCOUNT';
     document.getElementById('login-email').placeholder='Email';
     document.getElementById('login-pass').placeholder='Password';
+    // Landing page
+    document.getElementById('landing-subtitle').textContent='Space strategy · 90-day seasons · One turn per day';
+    document.getElementById('landing-cta').textContent='⚡ JOIN THE SEASON';
+    document.getElementById('landing-concept-p').innerHTML='In a war-torn galactic sector, every commander starts with one planet, resources, and ambition. <strong>5 minutes a day is all it takes.</strong> Build, research, colonize, attack — or forge alliances. After <strong>90 days</strong>, the best empire wins.';
+    document.getElementById('lf1t').textContent='Empire';
+    document.getElementById('lf1d').textContent='Build your mines, labs and shipyards. Every building counts.';
+    document.getElementById('lf2t').textContent='Research';
+    document.getElementById('lf2d').textContent='Unlock military and colonization technologies to dominate the galaxy.';
+    document.getElementById('lf3t').textContent='Conquest';
+    document.getElementById('lf3d').textContent='Fleet, combat, planet colonization. War is also fought in space.';
+    document.getElementById('lf4t').textContent='Diplomacy';
+    document.getElementById('lf4d').textContent='Alliances, private messages, RP forum. Politics is a weapon like any other.';
+    document.getElementById('lf5t').textContent='No addiction';
+    document.getElementById('lf5d').textContent='One turn per day, processed at midnight. No pay-to-win, no boosters.';
+    document.getElementById('lf6t').textContent='Seasons';
+    document.getElementById('lf6d').textContent='90 turns, one winner. The Hall of Fame archives every season for eternity.';
   }
 </script>
 <!-- COLONIZE MODAL -->
