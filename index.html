@@ -4245,13 +4245,55 @@ window._notify = notify;
 
   /* AUTH SCREEN */
   #auth-screen {
-    position:fixed; inset:0; z-index:500; display:flex; align-items:center; justify-content:center;
-    background:radial-gradient(ellipse at center, rgba(0,30,60,.8) 0%, rgba(3,6,15,.95) 70%);
+    position:fixed; inset:0; z-index:500; display:flex; flex-direction:column; align-items:center;
+    overflow-y:auto;
+    background:radial-gradient(ellipse at 50% 20%, rgba(0,40,80,.9) 0%, rgba(3,6,15,.98) 60%);
+  }
+  /* LANDING HERO */
+  .landing-hero {
+    width:100%; max-width:800px; text-align:center; padding:80px 24px 40px;
+  }
+  .landing-hero-title {
+    font-family:'Orbitron',monospace; font-size:clamp(2rem,5vw,3.5rem); font-weight:900;
+    color:var(--accent); text-shadow:0 0 40px rgba(0,200,255,.6); letter-spacing:6px; margin-bottom:8px;
+  }
+  .landing-hero-title span { color:var(--accent2); }
+  .landing-hero-sub {
+    font-size:clamp(.95rem,2vw,1.2rem); color:#aac8e0; letter-spacing:2px; margin-bottom:32px;
+  }
+  .landing-cta {
+    display:inline-block; padding:14px 40px; font-family:'Orbitron',monospace; font-size:.85rem;
+    font-weight:700; letter-spacing:3px; color:#000; background:var(--accent);
+    border:none; border-radius:3px; cursor:pointer; text-decoration:none;
+    box-shadow:0 0 30px rgba(0,200,255,.4); transition:all .2s;
+  }
+  .landing-cta:hover { box-shadow:0 0 50px rgba(0,200,255,.7); transform:translateY(-2px); }
+  /* CONCEPT */
+  .landing-concept {
+    width:100%; max-width:700px; text-align:center; padding:0 24px 48px;
+    color:#8ab0c8; font-size:1rem; line-height:1.8;
+  }
+  .landing-concept strong { color:var(--accent); }
+  /* FEATURES */
+  .landing-features {
+    width:100%; max-width:800px; display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+    gap:16px; padding:0 24px 60px;
+  }
+  .landing-feature-card {
+    background:rgba(0,200,255,.04); border:1px solid rgba(0,200,255,.15);
+    border-radius:6px; padding:20px 16px; text-align:center;
+  }
+  .landing-feature-icon { font-size:1.8rem; margin-bottom:10px; }
+  .landing-feature-title { font-family:'Orbitron',monospace; font-size:.75rem; color:var(--accent); letter-spacing:2px; margin-bottom:6px; }
+  .landing-feature-desc { font-size:.82rem; color:#7a9ab0; line-height:1.5; }
+  /* SÉPARATEUR */
+  .landing-divider {
+    width:100%; max-width:400px; border:none; border-top:1px solid rgba(0,200,255,.15); margin:0 auto 40px;
   }
   .auth-box {
     background:var(--panel2); border:1px solid var(--border); border-radius:6px;
-    padding:40px; width:380px; text-align:center;
-    box-shadow:0 0 60px rgba(0,200,255,.1);
+    padding:40px; width:100%; max-width:380px; text-align:center;
+    box-shadow:0 0 60px rgba(0,200,255,.1); margin-bottom:60px;
   }
   .auth-logo { font-family:'Orbitron',monospace; font-size:1.6rem; font-weight:900; color:var(--accent); text-shadow:var(--glow); letter-spacing:4px; margin-bottom:4px; }
   .auth-logo span { color:var(--accent2); }
@@ -4410,7 +4452,59 @@ window._notify = notify;
       location.reload();
     ">EN</button>
   </div>
-  <div class="auth-box">
+
+  <!-- HERO -->
+  <div class="landing-hero">
+    <div class="landing-hero-title">THE LAST <span>ORBIT</span></div>
+    <div class="landing-hero-sub">Stratégie spatiale · Saisons de 90 jours · Un tour par jour</div>
+    <a href="#auth-form" class="landing-cta">⚡ REJOINDRE LA SAISON</a>
+  </div>
+
+  <!-- CONCEPT -->
+  <div class="landing-concept">
+    <p>Dans un secteur galactique en guerre, chaque commandant dispose d'une planète, de ressources et d'ambitions.
+    <strong>5 minutes par jour suffisent.</strong> Construisez, recherchez, colonisez, attaquez —
+    ou forgez des alliances. Au bout de <strong>90 jours</strong>, le meilleur empire l'emporte.</p>
+  </div>
+
+  <!-- FEATURES -->
+  <div class="landing-features">
+    <div class="landing-feature-card">
+      <div class="landing-feature-icon">🏗️</div>
+      <div class="landing-feature-title">Empire</div>
+      <div class="landing-feature-desc">Construisez vos mines, laboratoires et chantiers navals. Chaque bâtiment compte.</div>
+    </div>
+    <div class="landing-feature-card">
+      <div class="landing-feature-icon">🔬</div>
+      <div class="landing-feature-title">Recherche</div>
+      <div class="landing-feature-desc">Débloquez des technologies militaires et de colonisation pour dominer la galaxie.</div>
+    </div>
+    <div class="landing-feature-card">
+      <div class="landing-feature-icon">🚀</div>
+      <div class="landing-feature-title">Conquête</div>
+      <div class="landing-feature-desc">Flotte, combats, colonisation de planètes. La guerre se joue aussi dans l'espace.</div>
+    </div>
+    <div class="landing-feature-card">
+      <div class="landing-feature-icon">🤝</div>
+      <div class="landing-feature-title">Diplomatie</div>
+      <div class="landing-feature-desc">Alliances, messages privés, forum RP. La politique est une arme comme une autre.</div>
+    </div>
+    <div class="landing-feature-card">
+      <div class="landing-feature-icon">⏱️</div>
+      <div class="landing-feature-title">Sans addiction</div>
+      <div class="landing-feature-desc">Un seul tour par jour, traité à minuit. Pas de pay-to-win, pas d'accélérateurs.</div>
+    </div>
+    <div class="landing-feature-card">
+      <div class="landing-feature-icon">🏆</div>
+      <div class="landing-feature-title">Saisons</div>
+      <div class="landing-feature-desc">90 tours, un vainqueur. Le Hall of Fame archive chaque saison pour l'éternité.</div>
+    </div>
+  </div>
+
+  <hr class="landing-divider">
+
+  <!-- FORMULAIRE -->
+  <div class="auth-box" id="auth-form">
     <div class="auth-logo">THE LAST <span>ORBIT</span></div>
     <div class="auth-tagline" id="auth-tagline">La galaxie vous attend, Commandant.</div>
     <div class="auth-error" id="auth-error"></div>
