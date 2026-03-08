@@ -2290,6 +2290,168 @@ window._deleteMsg = async function(docId) {
   renderMessages();
 };
 
+// ============================================================
+// FORUM RP
+// ============================================================
+let _forumCurrentThread = null;
+let _forumPostsUnsub = null;
+let _forumThreadsUnsub = null;
+
+function renderForum() {
+  document.getElementById('forum-thread-view').style.display = 'none';
+  document.getElementById('forum-threads-view').style.display = 'block';
+  document.getElementById('forum-new-thread').style.display = 'none';
+  _forumLoadThreads();
+}
+
+function _forumLoadThreads() {
+  if (_forumThreadsUnsub) { _forumThreadsUnsub(); _forumThreadsUnsub = null; }
+  const listEl = document.getElementById('forum-threads-list');
+  listEl.innerHTML = '<div style="color:#aaa;text-align:center;padding:20px">Chargement…</div>';
+  const q = query(collection(db, 'forum_threads'), where('season', '==', G.season || 1));
+  _forumThreadsUnsub = onSnapshot(q, snap => {
+    if (snap.empty) {
+      listEl.innerHTML = '<div style="color:#aaa;text-align:center;padding:40px">Aucun sujet pour le moment. Soyez le premier !</div>';
+      return;
+    }
+    const threads = snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (b.lastPostAt?.seconds || b.createdAt?.seconds || 0) - (a.lastPostAt?.seconds || a.createdAt?.seconds || 0));
+    listEl.innerHTML = threads.map(th => {
+      const d = th.lastPostAt?.toDate ? th.lastPostAt.toDate() : (th.createdAt?.toDate ? th.createdAt.toDate() : new Date());
+      const dateStr = d.toLocaleDateString('fr-FR') + ' ' + d.toLocaleTimeString('fr-FR', {hour:'2-digit', minute:'2-digit'});
+      return `<div onclick="window._forumOpenThread('${th.id}')" style="cursor:pointer;background:rgba(255,255,255,.03);border:1px solid #333;border-radius:6px;padding:12px 16px;margin-bottom:8px;display:flex;align-items:center;gap:12px">
+        <div style="flex:1">
+          <div style="font-weight:600;color:#eee;margin-bottom:3px">${th.title}</div>
+          <div style="font-size:.8rem;color:#888">Par ${th.authorName} — ${th.postCount||1} message${(th.postCount||1)>1?'s':''} — Dernier : ${dateStr}</div>
+        </div>
+        <div style="color:var(--accent);font-size:1.2rem">›</div>
+      </div>`;
+    }).join('');
+  });
+}
+
+window._forumOpenNewThread = function() {
+  document.getElementById('forum-thread-title-input').value = '';
+  document.getElementById('forum-thread-body-input').value = '';
+  document.getElementById('forum-new-thread').style.display = 'block';
+};
+
+window._forumCreateThread = async function() {
+  const title = document.getElementById('forum-thread-title-input').value.trim();
+  const body = document.getElementById('forum-thread-body-input').value.trim();
+  if (!title) { notify('Le sujet doit avoir un titre.', true); return; }
+  if (!body) { notify('Le premier message ne peut pas être vide.', true); return; }
+  const uid = currentUser?.uid;
+  const authorName = G.commanderName || G.planets[0]?.name || uid;
+  const now = serverTimestamp();
+  const threadRef = await addDoc(collection(db, 'forum_threads'), {
+    title,
+    authorUid: uid,
+    authorName,
+    season: G.season || 1,
+    postCount: 1,
+    createdAt: now,
+    lastPostAt: now
+  });
+  await addDoc(collection(db, 'forum_posts'), {
+    threadId: threadRef.id,
+    authorUid: uid,
+    authorName,
+    body,
+    createdAt: now
+  });
+  document.getElementById('forum-new-thread').style.display = 'none';
+  notify('Sujet créé !');
+  window._forumOpenThread(threadRef.id);
+};
+
+window._forumOpenThread = function(threadId) {
+  _forumCurrentThread = threadId;
+  if (_forumPostsUnsub) { _forumPostsUnsub(); _forumPostsUnsub = null; }
+  document.getElementById('forum-threads-view').style.display = 'none';
+  document.getElementById('forum-thread-view').style.display = 'block';
+  document.getElementById('forum-reply-body').value = '';
+
+  // titre du thread
+  getDoc(doc(db, 'forum_threads', threadId)).then(snap => {
+    if (snap.exists()) document.getElementById('forum-thread-title').textContent = snap.data().title;
+  });
+
+  // posts en temps réel
+  const postsEl = document.getElementById('forum-posts-list');
+  postsEl.innerHTML = '<div style="color:#aaa;text-align:center;padding:20px">Chargement…</div>';
+  const q = query(collection(db, 'forum_posts'), where('threadId', '==', threadId));
+  _forumPostsUnsub = onSnapshot(q, snap => {
+    const posts = snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
+    if (!posts.length) { postsEl.innerHTML = ''; return; }
+    const uid = currentUser?.uid;
+    postsEl.innerHTML = posts.map(p => {
+      const d = p.createdAt?.toDate ? p.createdAt.toDate() : new Date();
+      const dateStr = d.toLocaleDateString('fr-FR') + ' ' + d.toLocaleTimeString('fr-FR', {hour:'2-digit', minute:'2-digit'});
+      const isOwn = p.authorUid === uid;
+      return `<div style="background:rgba(255,255,255,.03);border:1px solid #2a2a2a;border-radius:6px;padding:12px 16px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <span style="font-weight:600;color:var(--accent)">${p.authorName}</span>
+          <span style="display:flex;align-items:center;gap:10px">
+            <span style="font-size:.75rem;color:#666">${dateStr}</span>
+            ${isOwn ? `<button onclick="window._forumDeletePost('${p.id}')" style="background:transparent;border:none;color:#555;cursor:pointer;font-size:1rem" title="Supprimer">🗑️</button>` : ''}
+          </span>
+        </div>
+        <div style="line-height:1.6;white-space:pre-wrap;color:#ddd">${p.body}</div>
+      </div>`;
+    }).join('');
+  });
+};
+
+window._forumBack = function() {
+  if (_forumPostsUnsub) { _forumPostsUnsub(); _forumPostsUnsub = null; }
+  _forumCurrentThread = null;
+  document.getElementById('forum-thread-view').style.display = 'none';
+  document.getElementById('forum-threads-view').style.display = 'block';
+};
+
+window._forumReply = async function() {
+  const body = document.getElementById('forum-reply-body').value.trim();
+  if (!body) { notify('Le message ne peut pas être vide.', true); return; }
+  const uid = currentUser?.uid;
+  const authorName = G.commanderName || G.planets[0]?.name || uid;
+  const now = serverTimestamp();
+  await addDoc(collection(db, 'forum_posts'), {
+    threadId: _forumCurrentThread,
+    authorUid: uid,
+    authorName,
+    body,
+    createdAt: now
+  });
+  // mettre à jour lastPostAt et postCount sur le thread
+  const threadRef = doc(db, 'forum_threads', _forumCurrentThread);
+  const threadSnap = await getDoc(threadRef);
+  if (threadSnap.exists()) {
+    await updateDoc(threadRef, {
+      lastPostAt: now,
+      postCount: (threadSnap.data().postCount || 1) + 1
+    });
+  }
+  document.getElementById('forum-reply-body').value = '';
+};
+
+window._forumDeletePost = async function(postId) {
+  if (!confirm('Supprimer ce message ?')) return;
+  await deleteDoc(doc(db, 'forum_posts', postId));
+  // décrémenter postCount
+  if (_forumCurrentThread) {
+    const threadRef = doc(db, 'forum_threads', _forumCurrentThread);
+    const threadSnap = await getDoc(threadRef);
+    if (threadSnap.exists()) {
+      const newCount = Math.max(1, (threadSnap.data().postCount || 1) - 1);
+      await updateDoc(threadRef, { postCount: newCount });
+    }
+  }
+};
+
 async function renderAlliance() {
   const el = document.getElementById('alliance-content');
   if (!el) return;
@@ -2449,6 +2611,7 @@ function renderPage(id) {
   else if (id==='market') { window._marketTab = window._marketTab||'public'; renderMarket(); }
   else if (id==='alliance') renderAlliance();
   else if (id==='messages') renderMessages();
+  else if (id==='forum') renderForum();
   else if (id==='ranking') renderRanking();
   else { updateUI(); renderAttackStatus('overview'); }
 }
@@ -4337,6 +4500,7 @@ window._notify = notify;
       <button class="nav-btn" onclick="window._showPage('ranking')" id="nav-ranking"><span class="nav-icon">🏆</span><span>Classement</span></button>
       <button class="nav-btn" onclick="window._showPage('market')" id="nav-market"><span class="nav-icon">💱</span><span data-tkey="market">Marché</span></button>
       <button class="nav-btn" onclick="window._showPage('alliance')" id="nav-alliance"><span class="nav-icon">🤝</span><span data-tkey="alliance">Alliance</span></button>
+      <button class="nav-btn" onclick="window._showPage('forum')" id="nav-forum"><span class="nav-icon">📡</span><span>Forum RP</span></button>
       <button class="nav-btn" onclick="window._showPage('messages')" id="nav-messages"><span class="nav-icon">✉️</span><span>Messages</span><span id="msg-badge" style="display:none;background:var(--danger);color:#fff;border-radius:10px;padding:1px 6px;font-size:.7rem;margin-left:4px">0</span></button>
       <button class="nav-btn" onclick="window._showPage('log')" id="nav-log"><span class="nav-icon">📜</span><span data-tkey="log">Journal</span></button>
     </nav>
@@ -4464,6 +4628,35 @@ window._notify = notify;
         <div class="page-title" data-tkey="log">Journal</div>
         <div class="page-subtitle">Historique de vos actions.</div>
         <div id="log-display"></div>
+      </div>
+
+      <div class="page" id="page-forum">
+        <div class="page-title">📡 Forum RP</div>
+        <div class="page-subtitle">Transmissions interceptées dans le secteur. Exprimez-vous, commandants.</div>
+        <div id="forum-thread-view" style="display:none">
+          <button onclick="window._forumBack()" style="background:transparent;border:none;color:var(--accent);cursor:pointer;margin-bottom:14px;font-size:.9rem">← Retour aux sujets</button>
+          <div id="forum-thread-title" style="font-size:1.1rem;font-weight:700;color:var(--accent);margin-bottom:16px"></div>
+          <div id="forum-posts-list"></div>
+          <div style="margin-top:16px;background:rgba(0,200,255,.05);border:1px solid var(--accent);border-radius:6px;padding:14px">
+            <textarea id="forum-reply-body" rows="3" maxlength="2000" placeholder="Votre message…" style="width:100%;background:#111;color:#eee;border:1px solid #444;padding:8px;border-radius:4px;box-sizing:border-box;resize:vertical"></textarea>
+            <button class="btn" onclick="window._forumReply()" style="margin-top:8px;padding:8px 20px">Envoyer</button>
+          </div>
+        </div>
+        <div id="forum-threads-view">
+          <div style="margin-bottom:14px">
+            <button class="btn" onclick="window._forumOpenNewThread()" style="padding:8px 20px">✏️ Nouveau sujet</button>
+          </div>
+          <div id="forum-new-thread" style="display:none;background:rgba(0,200,255,.05);border:1px solid var(--accent);border-radius:6px;padding:14px;margin-bottom:16px">
+            <div style="font-weight:600;color:var(--accent);margin-bottom:10px">Nouveau sujet</div>
+            <input id="forum-thread-title-input" type="text" maxlength="100" placeholder="Titre du sujet…" style="width:100%;background:#111;color:#eee;border:1px solid #444;padding:8px;border-radius:4px;box-sizing:border-box;margin-bottom:8px">
+            <textarea id="forum-thread-body-input" rows="4" maxlength="2000" placeholder="Premier message…" style="width:100%;background:#111;color:#eee;border:1px solid #444;padding:8px;border-radius:4px;box-sizing:border-box;resize:vertical"></textarea>
+            <div style="display:flex;gap:8px;margin-top:10px">
+              <button class="btn" onclick="window._forumCreateThread()" style="padding:8px 20px">Créer</button>
+              <button onclick="document.getElementById('forum-new-thread').style.display='none'" style="padding:8px 16px;background:transparent;border:1px solid #555;color:#aaa;cursor:pointer;border-radius:4px">Annuler</button>
+            </div>
+          </div>
+          <div id="forum-threads-list"></div>
+        </div>
       </div>
 
       <div class="page" id="page-messages">
