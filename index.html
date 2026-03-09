@@ -2359,6 +2359,113 @@ window._deleteMsg = async function(docId) {
 };
 
 // ============================================================
+// PROFIL JOUEUR
+// ============================================================
+const AVATARS = ['🚀','🛸','🌍','🪐','⭐','🌌','🔭','💫','🌠','🛰️','👨‍🚀','👩‍🚀','🤖','🦾','💀','🔥','❄️','⚡','🌊','🎯'];
+
+function _profileHTML(p, isOwn) {
+  const uid = currentUser?.uid;
+  const avatar = p.avatar || '🚀';
+  const bio = p.bio || (isOwn ? '' : '—');
+  const planets = (p.planets||[]);
+  const research = p.research||{};
+  const combatWins = p.combatWins||0;
+
+  // Calcul rang — on utilisera computeScore si dispo
+  const score = typeof computeScore === 'function' ? computeScore(p) : (p.score||0);
+
+  const avatarSelector = isOwn ? `
+    <div style="margin-top:12px">
+      <div style="font-size:.75rem;color:#888;margin-bottom:8px">Choisir un avatar :</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${AVATARS.map(a => `<span onclick="window._setAvatar('${a}')" style="cursor:pointer;font-size:1.4rem;padding:4px;border-radius:4px;border:2px solid ${a===avatar?'var(--accent)':'transparent'};transition:border .15s" id="av-${a}">${a}</span>`).join('')}
+      </div>
+    </div>` : '';
+
+  const bioSection = isOwn ? `
+    <div style="margin-top:16px">
+      <div style="font-size:.75rem;color:#888;margin-bottom:6px">Bio</div>
+      <textarea id="profile-bio-input" rows="2" maxlength="200" placeholder="Présentez-vous en quelques mots…" style="width:100%;background:#111;color:#eee;border:1px solid #444;padding:8px;border-radius:4px;box-sizing:border-box;resize:none">${bio}</textarea>
+      <button class="btn" onclick="window._saveProfile()" style="margin-top:8px;padding:6px 16px;font-size:.8rem">Sauvegarder</button>
+    </div>` : `
+    <div style="margin-top:12px;font-size:.85rem;color:#aaa;font-style:italic">${bio}</div>`;
+
+  const mpBtn = !isOwn && !p.isAI ? `
+    <div style="margin-top:16px">
+      <button class="btn" onclick="window._profileSendMsg('${p.uid||p.id}','${(p.commanderName||'').replace(/'/g,"\\'")}')">✉️ Envoyer un message</button>
+    </div>` : '';
+
+  return `
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px">
+      <div style="font-size:3rem">${avatar}</div>
+      <div>
+        <div style="font-family:'Orbitron',monospace;font-size:1rem;color:var(--accent)">${p.commanderName||'?'}</div>
+        <div style="font-size:.8rem;color:#888;margin-top:2px">${planets[0]?.name||'—'} · ${planets.length} planète${planets.length>1?'s':''}</div>
+        ${p.supporter ? '<div style="font-size:.75rem;color:gold;margin-top:2px">⭐ Supporter</div>' : ''}
+      </div>
+    </div>
+    ${avatarSelector}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px">
+      <div style="background:rgba(0,200,255,.05);border:1px solid #2a2a2a;border-radius:6px;padding:12px;text-align:center">
+        <div style="font-size:.7rem;color:#888;margin-bottom:4px">SCORE EMPIRE</div>
+        <div style="font-size:1.2rem;color:var(--accent);font-weight:700">${score.toLocaleString()}</div>
+      </div>
+      <div style="background:rgba(0,200,255,.05);border:1px solid #2a2a2a;border-radius:6px;padding:12px;text-align:center">
+        <div style="font-size:.7rem;color:#888;margin-bottom:4px">VICTOIRES</div>
+        <div style="font-size:1.2rem;color:var(--accent2);font-weight:700">${combatWins}</div>
+      </div>
+    </div>
+    ${bioSection}
+    ${mpBtn}
+  `;
+}
+
+async function renderMyProfile() {
+  const el = document.getElementById('profile-content');
+  el.innerHTML = '<div style="color:#aaa;text-align:center;padding:20px">Chargement…</div>';
+  const snap = await getDoc(doc(db, 'players', currentUser.uid));
+  if (!snap.exists) { el.innerHTML = '<div style="color:#aaa">Profil introuvable.</div>'; return; }
+  const p = { ...snap.data(), uid: currentUser.uid };
+  el.innerHTML = _profileHTML(p, true);
+}
+
+window._setAvatar = async function(avatar) {
+  // Mettre à jour visuellement
+  document.querySelectorAll('[id^="av-"]').forEach(el => {
+    el.style.border = el.id === `av-${avatar}` ? '2px solid var(--accent)' : '2px solid transparent';
+  });
+  G.avatar = avatar;
+  await updateDoc(doc(db, 'players', currentUser.uid), { avatar });
+};
+
+window._saveProfile = async function() {
+  const bio = document.getElementById('profile-bio-input').value.trim().slice(0, 200);
+  G.bio = bio;
+  await updateDoc(doc(db, 'players', currentUser.uid), { bio });
+  notify('Profil sauvegardé !');
+};
+
+window._openProfileModal = async function(uid) {
+  const modal = document.getElementById('profile-modal');
+  const content = document.getElementById('profile-modal-content');
+  content.innerHTML = '<div style="color:#aaa;text-align:center;padding:20px">Chargement…</div>';
+  modal.style.display = 'flex';
+  const snap = await getDoc(doc(db, 'players', uid));
+  if (!snap.exists) { content.innerHTML = '<div style="color:#aaa">Profil introuvable.</div>'; return; }
+  const p = { ...snap.data(), uid };
+  const isOwn = uid === currentUser?.uid;
+  content.innerHTML = _profileHTML(p, isOwn);
+};
+
+window._profileSendMsg = async function(toId, toName) {
+  document.getElementById('profile-modal').style.display = 'none';
+  showPage('messages');
+  await window._openNewMsg();
+  const select = document.getElementById('msg-to');
+  for (let opt of select.options) { if (opt.value === toId) { opt.selected = true; break; } }
+};
+
+// ============================================================
 // FORUM RP
 // ============================================================
 let _forumCurrentThread = null;
@@ -2680,6 +2787,7 @@ function renderPage(id) {
   else if (id==='alliance') renderAlliance();
   else if (id==='messages') renderMessages();
   else if (id==='forum') renderForum();
+  else if (id==='profile') renderMyProfile();
   else if (id==='ranking') renderRanking();
   else { updateUI(); renderAttackStatus('overview'); }
 }
@@ -3436,7 +3544,7 @@ async function renderRanking() {
         <div style="display:flex;align-items:center;gap:10px">
           <span style="font-size:1.2rem">${mainPlanet.emoji||'🪐'}</span>
           <div>
-            <div style="font-family:'Orbitron',monospace;font-size:.75rem;color:${nameColor};font-weight:700">${p.commanderName}${isMe?' <span style="font-size:.62rem;color:var(--accent);opacity:.8">(vous)</span>':''}${aiBadge}</div>
+            <div style="font-family:'Orbitron',monospace;font-size:.75rem;color:${nameColor};font-weight:700;cursor:${isAI?'default':'pointer'}" ${!isAI?`onclick="window._openProfileModal('${p.uid}')"`:''}>${p.commanderName}${isMe?' <span style="font-size:.62rem;color:var(--accent);opacity:.8">(vous)</span>':''}${aiBadge}</div>
             <div style="font-size:.7rem;color:var(--text2);margin-top:1px">${mainPlanet.name||'???'}</div>
           </div>
         </div>
@@ -4661,6 +4769,7 @@ window._notify = notify;
       <button class="nav-btn" onclick="window._showPage('galaxy')" id="nav-galaxy"><span class="nav-icon">🌌</span><span data-tkey="galaxy">Galaxie</span></button>
       <button class="nav-btn" onclick="window._showPage('ranking')" id="nav-ranking"><span class="nav-icon">🏆</span><span>Classement</span></button>
       <button class="nav-btn" onclick="window._showPage('market')" id="nav-market"><span class="nav-icon">💱</span><span data-tkey="market">Marché</span></button>
+      <button class="nav-btn" onclick="window._showPage('profile')" id="nav-profile"><span class="nav-icon">👤</span><span>Profil</span></button>
       <button class="nav-btn" onclick="window._showPage('alliance')" id="nav-alliance"><span class="nav-icon">🤝</span><span data-tkey="alliance">Alliance</span></button>
       <button class="nav-btn" onclick="window._showPage('forum')" id="nav-forum"><span class="nav-icon">📡</span><span>Forum RP</span></button>
       <button class="nav-btn" onclick="window._showPage('messages')" id="nav-messages"><span class="nav-icon">✉️</span><span>Messages</span><span id="msg-badge" style="display:none;background:var(--danger);color:#fff;border-radius:10px;padding:1px 6px;font-size:.7rem;margin-left:4px">0</span></button>
@@ -4792,6 +4901,12 @@ window._notify = notify;
         <div id="log-display"></div>
       </div>
 
+      <div class="page" id="page-profile">
+        <div class="page-title">👤 Mon Profil</div>
+        <div class="page-subtitle">Votre identité dans la galaxie.</div>
+        <div id="profile-content"></div>
+      </div>
+
       <div class="page" id="page-forum">
         <div class="page-title">📡 Forum RP</div>
         <div class="page-subtitle">Transmissions interceptées dans le secteur. Exprimez-vous, commandants.</div>
@@ -4920,6 +5035,17 @@ window._notify = notify;
     document.getElementById('lf6d').textContent='90 turns, one winner. The Hall of Fame archives every season for eternity.';
   }
 </script>
+<!-- PROFILE MODAL -->
+<div id="profile-modal" style="display:none;position:fixed;inset:0;z-index:300;align-items:center;justify-content:center;background:rgba(0,0,0,.75)">
+  <div style="background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:32px;width:440px;max-width:95vw;box-shadow:0 0 40px rgba(0,200,255,.15)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <div style="font-family:'Orbitron',monospace;font-size:.85rem;color:var(--accent);letter-spacing:2px">PROFIL</div>
+      <button onclick="document.getElementById('profile-modal').style.display='none'" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:1.2rem">✕</button>
+    </div>
+    <div id="profile-modal-content"></div>
+  </div>
+</div>
+
 <!-- COLONIZE MODAL -->
 <div id="colonize-modal" style="display:none;position:fixed;inset:0;z-index:300;align-items:center;justify-content:center;background:rgba(0,0,0,.75)">
   <div style="background:var(--panel2);border:1px solid rgba(127,255,107,.3);border-radius:6px;padding:32px;width:440px;max-width:95vw;box-shadow:0 0 40px rgba(127,255,107,.15)">
