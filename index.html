@@ -2498,7 +2498,7 @@ function _forumLoadThreads() {
       return `<div onclick="window._forumOpenThread('${th.id}')" style="cursor:pointer;background:rgba(255,255,255,.03);border:1px solid #333;border-radius:6px;padding:12px 16px;margin-bottom:8px;display:flex;align-items:center;gap:12px">
         <div style="flex:1">
           <div style="font-weight:600;color:#eee;margin-bottom:3px">${th.title}</div>
-          <div style="font-size:.8rem;color:#888">Par ${th.authorName} — ${th.postCount||1} message${(th.postCount||1)>1?'s':''} — Dernier : ${dateStr}</div>
+          <div style="font-size:.8rem;color:#888">Par <span style="cursor:pointer;color:var(--accent)" onclick="event.stopPropagation();window._openProfileModal('${th.authorUid}')">${th.authorName}</span> — ${th.postCount||1} message${(th.postCount||1)>1?'s':''} — Dernier : ${dateStr}</div>
         </div>
         <div style="color:var(--accent);font-size:1.2rem">›</div>
       </div>`;
@@ -2569,7 +2569,7 @@ window._forumOpenThread = function(threadId) {
       const isOwn = p.authorUid === uid;
       return `<div style="background:rgba(255,255,255,.03);border:1px solid #2a2a2a;border-radius:6px;padding:12px 16px;margin-bottom:10px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <span style="font-weight:600;color:var(--accent)">${p.authorName}</span>
+          <span style="font-weight:600;color:var(--accent);cursor:pointer" onclick="window._openProfileModal('${p.authorUid}')">${p.authorName}</span>
           <span style="display:flex;align-items:center;gap:10px">
             <span style="font-size:.75rem;color:#666">${dateStr}</span>
             ${isOwn ? `<button onclick="window._forumDeletePost('${p.id}')" style="background:transparent;border:none;color:#555;cursor:pointer;font-size:1rem" title="Supprimer">🗑️</button>` : ''}
@@ -2662,7 +2662,7 @@ async function renderAlliance() {
           ${members.map(m => `
             <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05)">
               <span style="font-size:1rem">${m.uid === alliance.chiefUid ? '👑' : '🔹'}</span>
-              <span style="flex:1">${m.name}</span>
+              <span style="flex:1;cursor:pointer;color:var(--accent)" onclick="window._openProfileModal('${m.uid}')">${m.name}</span>
               <span style="font-size:.7rem;color:var(--text2)">${m.uid === alliance.chiefUid ? t('chief') : t('member')}</span>
             </div>`).join('')}
         </div>`;
@@ -2713,7 +2713,7 @@ async function renderAlliance() {
       }
       chatEl.innerHTML = msgs.map(m => `
         <div style="padding:6px 10px;background:${m.uid===currentUser.uid?'rgba(0,200,255,.08)':'rgba(255,255,255,.04)'};border-radius:4px">
-          <span style="font-size:.72rem;color:var(--accent);margin-right:8px">${m.uid===alliance.chiefUid?'👑 ':''}${m.name}</span>
+          <span style="font-size:.72rem;color:var(--accent);margin-right:8px;cursor:pointer" onclick="window._openProfileModal('${m.uid}')">${m.uid===alliance.chiefUid?'👑 ':''}${m.name}</span>
           <span style="font-size:.88rem">${m.text}</span>
           <span style="font-size:.65rem;color:var(--text2);float:right">${new Date(m.ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</span>
         </div>`).join('');
