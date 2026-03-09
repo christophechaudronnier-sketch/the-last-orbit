@@ -1004,10 +1004,10 @@ async function processTurn() {
             if (item.type === 'building') {
               planet.buildings[item.id] = (planet.buildings[item.id]||0) + 1;
               const planetLabel = idx===0 ? '' : ` (${planet.name})`;
-              addLog(`✅ ${item.name} ${t('level')}${planet.buildings[item.id]}${planetLabel}`, 'info');
+              addLog(`✅ ${item.name}${planetLabel}`, 'info');
             } else if (item.type === 'research') {
               G.research[item.id] = (G.research[item.id]||0) + 1;
-              addLog(`✅ ${item.name} ${t('level')}${G.research[item.id]}`, 'info');
+              addLog(`✅ ${item.name}`, 'info');
             } else if (item.type === 'ship') {
               planet.fleet[item.id] = (planet.fleet[item.id]||0) + item.qty;
               const planetLabel = idx===0 ? '' : ` (${planet.name})`;
