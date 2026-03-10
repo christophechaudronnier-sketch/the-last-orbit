@@ -2789,7 +2789,16 @@ function renderPage(id) {
   else if (id==='forum') renderForum();
   else if (id==='profile') renderMyProfile();
   else if (id==='ranking') renderRanking();
-  else { updateUI(); renderAttackStatus('overview'); }
+  else { renderOverviewSelector(); updateUI(); renderAttackStatus('overview'); }
+}
+
+function renderOverviewSelector() {
+  const el = document.getElementById('overview-planet-selector');
+  if (!el || !G || G.planets.length <= 1) {
+    if (el) el.innerHTML = '';
+    return;
+  }
+  el.innerHTML = renderPlanetSelector('overview');
 }
 
 function updateUI() {
@@ -3758,6 +3767,7 @@ window._selectPlanet = (idx, pageId) => {
   if (pageId === 'buildings') renderBuildings();
   else if (pageId === 'defense') renderDefense();
   else if (pageId === 'fleet') renderFleet();
+  else if (pageId === 'overview') renderOverviewSelector();
   updateUI();
 };
 
@@ -4782,6 +4792,7 @@ window._notify = notify;
       <div class="page active" id="page-overview">
         <div class="page-title" data-tkey="overview">Vue Globale</div>
         <div class="page-subtitle" id="overview-sub">État de votre empire</div>
+        <div id="overview-planet-selector"></div>
         <div class="planet-visual">
           <span class="planet-emoji" id="planet-emoji">🪐</span>
           <div style="font-family:'Orbitron',monospace;font-size:1rem;color:var(--accent)" id="planet-name-big">—</div>
