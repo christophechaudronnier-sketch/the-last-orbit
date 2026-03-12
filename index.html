@@ -679,7 +679,7 @@ window._adminResetPlayers = async () => {
         ...data,
         turn: 1,
         nextTurnTime: nextMidnight(),
-        resources: { metal: 3000, crystal: 2000, energy: 2000 },
+        resources: { metal: 3000, crystal: 1000, energy: 200 },
         research: { combustion:0, weapons:0, shields:0, espionage:0, hyperdrive:0, colonization:0 },
         planets: [{
           ...data.planets[0],
@@ -710,7 +710,7 @@ window._adminResetPlayers = async () => {
     const myPlanet = G.planets[0];
     G.turn = 1;
     G.nextTurnTime = nextMidnight();
-    G.resources = { metal: 3000, crystal: 2000, energy: 2000 };
+    G.resources = { metal: 3000, crystal: 1000, energy: 200 };
     G.research = { combustion:0, weapons:0, shields:0, espionage:0, hyperdrive:0, colonization:0 };
     G.planets = [{
       ...myPlanet,
@@ -782,7 +782,7 @@ function createNewGame(planetName, commanderName) {
     commanderName: commanderName || 'Commander',
     turn: 1,
     nextTurnTime: nextMidnight(),
-    resources: { metal: 3000, crystal: 2000, energy: 2000 },
+    resources: { metal: 3000, crystal: 1000, energy: 200 },
     research: { combustion:0, weapons:0, shields:0, espionage:0, hyperdrive:0, colonization:0 },
     planets: [ {
       ...makePlanet(planetName, null, null, true),
@@ -1117,7 +1117,7 @@ function makeAIGame(profile, coordIndex) {
     commanderName: profile.commanderName,
     turn: 1,
     nextTurnTime: nextMidnight(),
-    resources: { metal: 3000, crystal: 2000, energy: 2000 },
+    resources: { metal: 3000, crystal: 1000, energy: 200 },
     research: { combustion:0, weapons:0, shields:0, espionage:0, hyperdrive:0, colonization:0 },
     planets: [{
       name: profile.planetName,
@@ -2391,9 +2391,10 @@ function _profileHTML(p, isOwn) {
     <div style="margin-top:12px;font-size:.85rem;color:#aaa;font-style:italic">${bio}</div>`;
 
   const mpBtn = !isOwn && !p.isAI ? `
-    <div style="margin-top:16px">
+    <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn" onclick="window._profileSendMsg('${p.uid||p.id}','${(p.commanderName||'').replace(/'/g,"\\'")}')">✉️ Envoyer un message</button>
-    </div>` : '';
+      ${(G&&(G.research||{}).espionage>0)?`<button class="btn" style="background:rgba(150,50,255,.2);border-color:rgba(150,50,255,.5);color:#c084fc" onclick="window._launchSpy('${p.uid||p.id}','${(p.commanderName||"").replace(/'/g,"\\'")}',false)">&#128065; Espionner</button>`:""}
+    </div>` : "";
 
   return `
     <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px">
@@ -2444,6 +2445,191 @@ window._saveProfile = async function() {
   await updateDoc(doc(db, 'players', currentUser.uid), { bio });
   notify('Profil sauvegardé !');
 };
+
+
+// ============================================================
+// ESPIONNAGE
+// ============================================================
+
+window._launchSpy = async function(targetUid, targetName, fromGalaxy) {
+  if (!G || !currentUser) return;
+  const myLvl  = G.research?.espionage || 0;
+  if (myLvl === 0) {
+    notify(lang==='fr' ? "Vous n'avez pas la technologie d'espionnage." : "You don't have espionage technology.", true);
+    return;
+  }
+  // Charger les données fraîches de la cible
+  const snap = await getDoc(doc(db, 'players', targetUid));
+  if (!snap.exists()) { notify(lang==='fr' ? 'Cible introuvable.' : 'Target not found.', true); return; }
+  const target = snap.data();
+  const defLvl = target.research?.espionage || 0;
+
+  // Coût : 200 énergie × niveau espionnage de la cible (minimum 200)
+  const cost = Math.max(200, 200 * defLvl);
+  if ((G.resources?.energy || 0) < cost) {
+    notify(lang==='fr' ? `Énergie insuffisante (coût : ${cost}).` : `Not enough energy (cost: ${cost}).`, true);
+    return;
+  }
+
+  // Déduire l'énergie
+  G.resources.energy -= cost;
+  await saveGame();
+
+  // Résultat selon écart de niveaux
+  const diff = myLvl - defLvl; // positif = attaquant supérieur
+  const detected = diff <= 0;
+  let report = { success: true, partial: false };
+
+  if (diff <= -2) {
+    // Échec total
+    report = { success: false };
+  } else if (diff === -1) {
+    // Rapport partiel (ressources seulement)
+    report = { success: true, partial: true,
+      resources: target.resources || {},
+    };
+  } else {
+    // Rapport complet — valeurs exactes si diff>=1, approx si diff==0
+    const approx = (v) => diff >= 1 ? v : Math.round(v * (0.85 + Math.random() * 0.3));
+    const planets = target.planets || [];
+    // Agréger flotte et défenses de toutes les planètes
+    const fleet = {}, defense = {};
+    const SHIP_IDS    = ['fighter','cruiser','battleship','colonizer'];
+    const DEFENSE_IDS = ['shields','cannons','rockets'];
+    SHIP_IDS.forEach(id => fleet[id] = 0);
+    DEFENSE_IDS.forEach(id => defense[id] = 0);
+    planets.forEach(p => {
+      SHIP_IDS.forEach(id    => fleet[id]    += (p.fleet||{})[id]    || 0);
+      DEFENSE_IDS.forEach(id => defense[id]  += (p.defense||{})[id]  || 0);
+    });
+    report = {
+      success: true, partial: false,
+      resources: {
+        metal:   approx(target.resources?.metal   || 0),
+        crystal: approx(target.resources?.crystal || 0),
+        energy:  approx(target.resources?.energy  || 0),
+      },
+      fleet:   Object.fromEntries(Object.entries(fleet).map(([k,v])   => [k, approx(v)])),
+      defense: Object.fromEntries(Object.entries(defense).map(([k,v]) => [k, approx(v)])),
+      research: diff >= 1 ? (target.research || {}) : null,
+    };
+  }
+
+  // Notification au défenseur si détecté
+  if (detected) {
+    try {
+      await addDoc(collection(db, 'messages'), {
+        from: currentUser.uid,
+        to: targetUid,
+        fromName: G.commanderName || '???',
+        subject: lang==='fr' ? '🔍 Sonde interceptée' : '🔍 Probe intercepted',
+        body: lang==='fr'
+          ? `Une sonde en provenance de ${G.commanderName} a été interceptée dans votre système.`
+          : `A probe from ${G.commanderName} was intercepted in your system.`,
+        read: false,
+        isSystem: true,
+        timestamp: serverTimestamp(),
+      });
+    } catch(e) {}
+  }
+
+  // Stocker le rapport 24h dans Firestore
+  const reportDoc = {
+    attackerUid: currentUser.uid,
+    targetUid,
+    targetName,
+    myLvl, defLvl, diff, detected,
+    report,
+    createdAt: Date.now(),
+    expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+  };
+  await addDoc(collection(db, 'spy_reports'), reportDoc);
+
+  // Afficher le rapport
+  _showSpyReport(reportDoc, targetName, cost, fromGalaxy);
+};
+
+function _showSpyReport(data, targetName, cost, fromGalaxy) {
+  const { report, detected, diff, myLvl, defLvl } = data;
+  const SHIP_LABELS    = { fighter:'Chasseurs', cruiser:'Croiseurs', battleship:'Cuirassés', colonizer:'Colonisateurs' };
+  const DEFENSE_LABELS = { shields:'Boucliers', cannons:'Canons', rockets:'Roquettes' };
+  const RES_LABELS     = { metal:'🪨 Métal', crystal:'💎 Cristal', energy:'⚡ Énergie' };
+
+  let html = `<div style="font-family:'Orbitron',monospace;font-size:.7rem;color:var(--accent);letter-spacing:2px;margin-bottom:14px">👁 RAPPORT D'ESPIONNAGE</div>`;
+  html += `<div style="font-size:.85rem;margin-bottom:6px">Cible : <b>${targetName}</b></div>`;
+  html += `<div style="font-size:.75rem;color:var(--text2);margin-bottom:14px">Énergie consommée : ${cost} · Niveau att. ${myLvl} vs déf. ${defLvl}</div>`;
+
+  if (!report.success) {
+    html += `<div style="color:var(--danger);font-weight:700;margin-bottom:10px">❌ Mission échouée — sonde détruite.</div>`;
+  } else {
+    // Ressources
+    html += `<div style="font-size:.75rem;color:#888;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">Ressources</div>`;
+    html += `<div style="display:flex;gap:16px;margin-bottom:14px">`;
+    Object.entries(report.resources).forEach(([k,v]) => {
+      html += `<span>${RES_LABELS[k]||k} : <b>${v.toLocaleString()}</b></span>`;
+    });
+    html += `</div>`;
+
+    if (!report.partial) {
+      // Flotte
+      const fleetEntries = Object.entries(report.fleet).filter(([,v])=>v>0);
+      html += `<div style="font-size:.75rem;color:#888;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">Flotte</div>`;
+      html += `<div style="margin-bottom:14px;font-size:.85rem">`;
+      html += fleetEntries.length ? fleetEntries.map(([k,v])=>`${SHIP_LABELS[k]||k} : <b>${v}</b>`).join(' · ') : '—';
+      html += `</div>`;
+
+      // Défenses
+      const defEntries = Object.entries(report.defense).filter(([,v])=>v>0);
+      html += `<div style="font-size:.75rem;color:#888;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">Défenses</div>`;
+      html += `<div style="margin-bottom:14px;font-size:.85rem">`;
+      html += defEntries.length ? defEntries.map(([k,v])=>`${DEFENSE_LABELS[k]||k} : <b>${v}</b>`).join(' · ') : '—';
+      html += `</div>`;
+
+      // Recherches si diff >= 1
+      if (report.research) {
+        const resEntries = Object.entries(report.research).filter(([,v])=>v>0);
+        html += `<div style="font-size:.75rem;color:#888;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">Recherches</div>`;
+        html += `<div style="margin-bottom:14px;font-size:.85rem">`;
+        html += resEntries.length ? resEntries.map(([k,v])=>`${k} nv.${v}`).join(' · ') : '—';
+        html += `</div>`;
+      }
+
+      if (diff === 0) {
+        html += `<div style="font-size:.75rem;color:orange;margin-top:4px">⚠️ Valeurs approximatives (niveaux égaux).</div>`;
+      }
+    }
+  }
+
+  if (detected) {
+    html += `<div style="margin-top:10px;padding:8px;background:rgba(255,100,100,.1);border:1px solid rgba(255,100,100,.3);border-radius:6px;font-size:.78rem;color:#ff9999">⚠️ Sonde détectée ! ${targetName} a été alerté(e).</div>`;
+  }
+
+  // Afficher dans la modal profil si on vient du profil, sinon dans une modale dédiée
+  if (!fromGalaxy) {
+    const content = document.getElementById('profile-modal-content');
+    if (content) {
+      const reportDiv = document.createElement('div');
+      reportDiv.style.cssText = 'margin-top:20px;padding-top:16px;border-top:1px solid #333';
+      reportDiv.innerHTML = html;
+      content.appendChild(reportDiv);
+      return;
+    }
+  }
+  // Modale dédiée pour la galaxie
+  let modal = document.getElementById('spy-report-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'spy-report-modal';
+    modal.style.cssText = 'display:none;position:fixed;inset:0;z-index:400;align-items:center;justify-content:center;background:rgba(0,0,0,.8)';
+    modal.innerHTML = `<div style="background:#0e0e1a;border:1px solid #333;border-radius:12px;padding:24px;max-width:480px;width:90%;max-height:80vh;overflow-y:auto;position:relative">
+      <button onclick="document.getElementById('spy-report-modal').style.display='none'" style="position:absolute;top:12px;right:12px;background:none;border:none;color:#888;cursor:pointer;font-size:1.2rem">✕</button>
+      <div id="spy-report-content"></div>
+    </div>`;
+    document.body.appendChild(modal);
+  }
+  document.getElementById('spy-report-content').innerHTML = html;
+  modal.style.display = 'flex';
+}
 
 window._openProfileModal = async function(uid) {
   const modal = document.getElementById('profile-modal');
@@ -3459,7 +3645,8 @@ window._showHexPopup = (col, row, event) => {
     </div>
     <button class="btn orange" style="padding:8px;font-size:.8rem" onclick="window._openAttackModal('${cell.uid||''}','${(cell.commander||'').replace(/'/g,"\\'")}','${(cell.planet.name||'').replace(/'/g,"\\'")}',${col},${row});document.getElementById('hex-popup').style.display='none'">
       ${t('attackPlayer')}
-    </button>`;
+    </button>
+    ${!isAI && (G?.research?.espionage||0) > 0 ? `<button class="btn" style="margin-top:6px;width:100%;padding:8px;font-size:.8rem;background:rgba(150,50,255,.2);border-color:rgba(150,50,255,.5);color:#c084fc" onclick="window._launchSpy('${cell.uid||''}','${(cell.commander||'').replace(/'/g,"\\'")}',true);document.getElementById('hex-popup').style.display='none'">&#128065; Espionner</button>` : ''}`;
   // Positionner la popup près du curseur
   const x = Math.min(event.clientX + 10, window.innerWidth - 220);
   const y = Math.min(event.clientY - 20, window.innerHeight - 180);
