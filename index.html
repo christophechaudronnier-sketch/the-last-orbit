@@ -2391,10 +2391,9 @@ function _profileHTML(p, isOwn) {
     <div style="margin-top:12px;font-size:.85rem;color:#aaa;font-style:italic">${bio}</div>`;
 
   const mpBtn = !isOwn && !p.isAI ? `
-    <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
+    <div style="margin-top:16px">
       <button class="btn" onclick="window._profileSendMsg('${p.uid||p.id}','${(p.commanderName||'').replace(/'/g,"\\'")}')">✉️ Envoyer un message</button>
-      ${(G&&(G.research||{}).espionage>0)?`<button class="btn" style="background:rgba(150,50,255,.2);border-color:rgba(150,50,255,.5);color:#c084fc" onclick="window._launchSpy('${p.uid||p.id}','${(p.commanderName||"").replace(/'/g,"\\'")}',false)">&#128065; Espionner</button>`:""}
-    </div>` : "";
+    </div>` : '';
 
   return `
     <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px">
@@ -2445,191 +2444,6 @@ window._saveProfile = async function() {
   await updateDoc(doc(db, 'players', currentUser.uid), { bio });
   notify('Profil sauvegardé !');
 };
-
-
-// ============================================================
-// ESPIONNAGE
-// ============================================================
-
-window._launchSpy = async function(targetUid, targetName, fromGalaxy) {
-  if (!G || !currentUser) return;
-  const myLvl  = G.research?.espionage || 0;
-  if (myLvl === 0) {
-    notify(lang==='fr' ? "Vous n'avez pas la technologie d'espionnage." : "You don't have espionage technology.", true);
-    return;
-  }
-  // Charger les données fraîches de la cible
-  const snap = await getDoc(doc(db, 'players', targetUid));
-  if (!snap.exists()) { notify(lang==='fr' ? 'Cible introuvable.' : 'Target not found.', true); return; }
-  const target = snap.data();
-  const defLvl = target.research?.espionage || 0;
-
-  // Coût : 200 énergie × niveau espionnage de la cible (minimum 200)
-  const cost = Math.max(200, 200 * defLvl);
-  if ((G.resources?.energy || 0) < cost) {
-    notify(lang==='fr' ? `Énergie insuffisante (coût : ${cost}).` : `Not enough energy (cost: ${cost}).`, true);
-    return;
-  }
-
-  // Déduire l'énergie
-  G.resources.energy -= cost;
-  await saveGame();
-
-  // Résultat selon écart de niveaux
-  const diff = myLvl - defLvl; // positif = attaquant supérieur
-  const detected = diff <= 0;
-  let report = { success: true, partial: false };
-
-  if (diff <= -2) {
-    // Échec total
-    report = { success: false };
-  } else if (diff === -1) {
-    // Rapport partiel (ressources seulement)
-    report = { success: true, partial: true,
-      resources: target.resources || {},
-    };
-  } else {
-    // Rapport complet — valeurs exactes si diff>=1, approx si diff==0
-    const approx = (v) => diff >= 1 ? v : Math.round(v * (0.85 + Math.random() * 0.3));
-    const planets = target.planets || [];
-    // Agréger flotte et défenses de toutes les planètes
-    const fleet = {}, defense = {};
-    const SHIP_IDS    = ['fighter','cruiser','battleship','colonizer'];
-    const DEFENSE_IDS = ['shields','cannons','rockets'];
-    SHIP_IDS.forEach(id => fleet[id] = 0);
-    DEFENSE_IDS.forEach(id => defense[id] = 0);
-    planets.forEach(p => {
-      SHIP_IDS.forEach(id    => fleet[id]    += (p.fleet||{})[id]    || 0);
-      DEFENSE_IDS.forEach(id => defense[id]  += (p.defense||{})[id]  || 0);
-    });
-    report = {
-      success: true, partial: false,
-      resources: {
-        metal:   approx(target.resources?.metal   || 0),
-        crystal: approx(target.resources?.crystal || 0),
-        energy:  approx(target.resources?.energy  || 0),
-      },
-      fleet:   Object.fromEntries(Object.entries(fleet).map(([k,v])   => [k, approx(v)])),
-      defense: Object.fromEntries(Object.entries(defense).map(([k,v]) => [k, approx(v)])),
-      research: diff >= 1 ? (target.research || {}) : null,
-    };
-  }
-
-  // Notification au défenseur si détecté
-  if (detected) {
-    try {
-      await addDoc(collection(db, 'messages'), {
-        from: currentUser.uid,
-        to: targetUid,
-        fromName: G.commanderName || '???',
-        subject: lang==='fr' ? '🔍 Sonde interceptée' : '🔍 Probe intercepted',
-        body: lang==='fr'
-          ? `Une sonde en provenance de ${G.commanderName} a été interceptée dans votre système.`
-          : `A probe from ${G.commanderName} was intercepted in your system.`,
-        read: false,
-        isSystem: true,
-        timestamp: serverTimestamp(),
-      });
-    } catch(e) {}
-  }
-
-  // Stocker le rapport 24h dans Firestore
-  const reportDoc = {
-    attackerUid: currentUser.uid,
-    targetUid,
-    targetName,
-    myLvl, defLvl, diff, detected,
-    report,
-    createdAt: Date.now(),
-    expiresAt: Date.now() + 24 * 60 * 60 * 1000,
-  };
-  await addDoc(collection(db, 'spy_reports'), reportDoc);
-
-  // Afficher le rapport
-  _showSpyReport(reportDoc, targetName, cost, fromGalaxy);
-};
-
-function _showSpyReport(data, targetName, cost, fromGalaxy) {
-  const { report, detected, diff, myLvl, defLvl } = data;
-  const SHIP_LABELS    = { fighter:'Chasseurs', cruiser:'Croiseurs', battleship:'Cuirassés', colonizer:'Colonisateurs' };
-  const DEFENSE_LABELS = { shields:'Boucliers', cannons:'Canons', rockets:'Roquettes' };
-  const RES_LABELS     = { metal:'🪨 Métal', crystal:'💎 Cristal', energy:'⚡ Énergie' };
-
-  let html = `<div style="font-family:'Orbitron',monospace;font-size:.7rem;color:var(--accent);letter-spacing:2px;margin-bottom:14px">👁 RAPPORT D'ESPIONNAGE</div>`;
-  html += `<div style="font-size:.85rem;margin-bottom:6px">Cible : <b>${targetName}</b></div>`;
-  html += `<div style="font-size:.75rem;color:var(--text2);margin-bottom:14px">Énergie consommée : ${cost} · Niveau att. ${myLvl} vs déf. ${defLvl}</div>`;
-
-  if (!report.success) {
-    html += `<div style="color:var(--danger);font-weight:700;margin-bottom:10px">❌ Mission échouée — sonde détruite.</div>`;
-  } else {
-    // Ressources
-    html += `<div style="font-size:.75rem;color:#888;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">Ressources</div>`;
-    html += `<div style="display:flex;gap:16px;margin-bottom:14px">`;
-    Object.entries(report.resources).forEach(([k,v]) => {
-      html += `<span>${RES_LABELS[k]||k} : <b>${v.toLocaleString()}</b></span>`;
-    });
-    html += `</div>`;
-
-    if (!report.partial) {
-      // Flotte
-      const fleetEntries = Object.entries(report.fleet).filter(([,v])=>v>0);
-      html += `<div style="font-size:.75rem;color:#888;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">Flotte</div>`;
-      html += `<div style="margin-bottom:14px;font-size:.85rem">`;
-      html += fleetEntries.length ? fleetEntries.map(([k,v])=>`${SHIP_LABELS[k]||k} : <b>${v}</b>`).join(' · ') : '—';
-      html += `</div>`;
-
-      // Défenses
-      const defEntries = Object.entries(report.defense).filter(([,v])=>v>0);
-      html += `<div style="font-size:.75rem;color:#888;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">Défenses</div>`;
-      html += `<div style="margin-bottom:14px;font-size:.85rem">`;
-      html += defEntries.length ? defEntries.map(([k,v])=>`${DEFENSE_LABELS[k]||k} : <b>${v}</b>`).join(' · ') : '—';
-      html += `</div>`;
-
-      // Recherches si diff >= 1
-      if (report.research) {
-        const resEntries = Object.entries(report.research).filter(([,v])=>v>0);
-        html += `<div style="font-size:.75rem;color:#888;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">Recherches</div>`;
-        html += `<div style="margin-bottom:14px;font-size:.85rem">`;
-        html += resEntries.length ? resEntries.map(([k,v])=>`${k} nv.${v}`).join(' · ') : '—';
-        html += `</div>`;
-      }
-
-      if (diff === 0) {
-        html += `<div style="font-size:.75rem;color:orange;margin-top:4px">⚠️ Valeurs approximatives (niveaux égaux).</div>`;
-      }
-    }
-  }
-
-  if (detected) {
-    html += `<div style="margin-top:10px;padding:8px;background:rgba(255,100,100,.1);border:1px solid rgba(255,100,100,.3);border-radius:6px;font-size:.78rem;color:#ff9999">⚠️ Sonde détectée ! ${targetName} a été alerté(e).</div>`;
-  }
-
-  // Afficher dans la modal profil si on vient du profil, sinon dans une modale dédiée
-  if (!fromGalaxy) {
-    const content = document.getElementById('profile-modal-content');
-    if (content) {
-      const reportDiv = document.createElement('div');
-      reportDiv.style.cssText = 'margin-top:20px;padding-top:16px;border-top:1px solid #333';
-      reportDiv.innerHTML = html;
-      content.appendChild(reportDiv);
-      return;
-    }
-  }
-  // Modale dédiée pour la galaxie
-  let modal = document.getElementById('spy-report-modal');
-  if (!modal) {
-    modal = document.createElement('div');
-    modal.id = 'spy-report-modal';
-    modal.style.cssText = 'display:none;position:fixed;inset:0;z-index:400;align-items:center;justify-content:center;background:rgba(0,0,0,.8)';
-    modal.innerHTML = `<div style="background:#0e0e1a;border:1px solid #333;border-radius:12px;padding:24px;max-width:480px;width:90%;max-height:80vh;overflow-y:auto;position:relative">
-      <button onclick="document.getElementById('spy-report-modal').style.display='none'" style="position:absolute;top:12px;right:12px;background:none;border:none;color:#888;cursor:pointer;font-size:1.2rem">✕</button>
-      <div id="spy-report-content"></div>
-    </div>`;
-    document.body.appendChild(modal);
-  }
-  document.getElementById('spy-report-content').innerHTML = html;
-  modal.style.display = 'flex';
-}
 
 window._openProfileModal = async function(uid) {
   const modal = document.getElementById('profile-modal');
@@ -2975,6 +2789,7 @@ function renderPage(id) {
   else if (id==='forum') renderForum();
   else if (id==='profile') renderMyProfile();
   else if (id==='ranking') renderRanking();
+  else if (id==='admin') renderAdmin();
   else { renderOverviewSelector(); updateUI(); renderAttackStatus('overview'); }
 }
 
@@ -3289,6 +3104,161 @@ async function renderAttackStatus(context) {
     container.style.display = 'block';
   } catch(e) { console.error('renderAttackStatus:', e); }
 }
+
+// ============================================================
+// PAGE ADMIN
+// ============================================================
+async function renderAdmin() {
+  if (!currentUser || currentUser.uid !== ADMIN_UID) return;
+  const el = document.getElementById('admin-content');
+  if (!el) return;
+  el.innerHTML = '<div style="color:#aaa;text-align:center;padding:40px">Chargement…</div>';
+
+  try {
+    // Charger tous les joueurs
+    const playersSnap = await getDocs(collection(db, 'players'));
+    const players = playersSnap.docs.map(d => ({ uid: d.id, ...d.data() }))
+      .filter(p => !p.isAI)
+      .sort((a, b) => (b.score||0) - (a.score||0));
+
+    // Charger les snapshots des 14 derniers tours max
+    const snapQuery = query(collection(db, 'admin_snapshots'));
+    const snapSnap = await getDocs(snapQuery);
+    const allSnaps = snapSnap.docs.map(d => d.data()).filter(s => !s.isAI);
+
+    // Grouper les snapshots par uid
+    const snapsByUid = {};
+    allSnaps.forEach(s => {
+      if (!snapsByUid[s.uid]) snapsByUid[s.uid] = [];
+      snapsByUid[s.uid].push(s);
+    });
+    // Trier par turn croissant
+    Object.values(snapsByUid).forEach(arr => arr.sort((a,b) => a.turn - b.turn));
+
+    // ── Tableau principal ──
+    let html = `
+      <div style="margin-bottom:24px;padding:16px;background:rgba(255,40,40,.05);border:1px solid rgba(255,40,40,.2);border-radius:8px">
+        <div style="font-family:'Orbitron',monospace;font-size:.7rem;color:rgba(255,80,80,.9);letter-spacing:2px;margin-bottom:14px">👥 JOUEURS HUMAINS — TOUR ACTUEL</div>
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:.82rem">
+            <thead>
+              <tr style="color:#888;font-size:.72rem;text-transform:uppercase;letter-spacing:1px">
+                <th style="text-align:left;padding:6px 10px;border-bottom:1px solid #333">Joueur</th>
+                <th style="text-align:right;padding:6px 10px;border-bottom:1px solid #333">Tour</th>
+                <th style="text-align:right;padding:6px 10px;border-bottom:1px solid #333">Score</th>
+                <th style="text-align:right;padding:6px 10px;border-bottom:1px solid #333">🪨 Métal</th>
+                <th style="text-align:right;padding:6px 10px;border-bottom:1px solid #333">💎 Cristal</th>
+                <th style="text-align:right;padding:6px 10px;border-bottom:1px solid #333">⚡ Énergie</th>
+                <th style="text-align:right;padding:6px 10px;border-bottom:1px solid #333">Planètes</th>
+                <th style="text-align:right;padding:6px 10px;border-bottom:1px solid #333">Victoires</th>
+                <th style="text-align:right;padding:6px 10px;border-bottom:1px solid #333">Dernière co.</th>
+                <th style="text-align:center;padding:6px 10px;border-bottom:1px solid #333">Alerte</th>
+              </tr>
+            </thead>
+            <tbody>`;
+
+    players.forEach(p => {
+      const res = p.resources || {};
+      const totalRes = (res.metal||0) + (res.crystal||0) + (res.energy||0);
+      const lastSeen = p.lastSeen ? new Date(p.lastSeen).toLocaleDateString('fr-FR') : '—';
+      const turn = p.turn || 1;
+
+      // Détection anomalies
+      const alerts = [];
+      if (totalRes > 500000) alerts.push('💰 Ressources suspectes');
+      if ((p.combatWins||0) > (players.length - 1) * 3) alerts.push('⚔️ Victoires suspectes');
+
+      // Évolution score sur les 3 derniers snaps
+      const snaps = snapsByUid[p.uid] || [];
+      let scoreTrend = '';
+      if (snaps.length >= 2) {
+        const last = snaps[snaps.length-1].score || 0;
+        const prev = snaps[snaps.length-2].score || 0;
+        const delta = last - prev;
+        const deltaTurn = snaps[snaps.length-1].turn - snaps[snaps.length-2].turn;
+        if (deltaTurn > 0 && delta / deltaTurn > 5000) alerts.push('📈 Progression anormale');
+        scoreTrend = delta >= 0
+          ? `<span style="color:#4ade80;font-size:.7rem">+${delta.toLocaleString()}</span>`
+          : `<span style="color:#f87171;font-size:.7rem">${delta.toLocaleString()}</span>`;
+      }
+
+      const alertCell = alerts.length > 0
+        ? `<span style="color:#f87171;font-size:.72rem" title="${alerts.join(' | ')}">🚨 ${alerts.length}</span>`
+        : `<span style="color:#4ade80;font-size:.72rem">✅</span>`;
+
+      const rowBg = alerts.length > 0 ? 'background:rgba(255,40,40,.05)' : '';
+
+      html += `<tr style="${rowBg};border-bottom:1px solid rgba(255,255,255,.04)">
+        <td style="padding:8px 10px;font-weight:600;color:var(--accent)">${p.commanderName||p.uid}</td>
+        <td style="text-align:right;padding:8px 10px">${turn}</td>
+        <td style="text-align:right;padding:8px 10px">${(p.score||0).toLocaleString()} ${scoreTrend}</td>
+        <td style="text-align:right;padding:8px 10px;color:var(--metal)">${(res.metal||0).toLocaleString()}</td>
+        <td style="text-align:right;padding:8px 10px;color:var(--crystal)">${(res.crystal||0).toLocaleString()}</td>
+        <td style="text-align:right;padding:8px 10px;color:#60a5fa">${(res.energy||0).toLocaleString()}</td>
+        <td style="text-align:right;padding:8px 10px">${(p.planets||[]).length}</td>
+        <td style="text-align:right;padding:8px 10px">${p.combatWins||0}</td>
+        <td style="text-align:right;padding:8px 10px;font-size:.75rem;color:#888">${lastSeen}</td>
+        <td style="text-align:center;padding:8px 10px">${alertCell}</td>
+      </tr>`;
+    });
+
+    html += `</tbody></table></div></div>`;
+
+    // ── Historique par joueur ──
+    html += `<div style="font-family:'Orbitron',monospace;font-size:.7rem;color:#888;letter-spacing:2px;margin-bottom:16px">📈 ÉVOLUTION PAR JOUEUR</div>`;
+
+    players.forEach(p => {
+      const snaps = snapsByUid[p.uid] || [];
+      if (snaps.length === 0) return;
+
+      html += `<div style="margin-bottom:20px;padding:14px;background:rgba(255,255,255,.02);border:1px solid #2a2a2a;border-radius:8px">`;
+      html += `<div style="font-weight:600;color:var(--accent);margin-bottom:10px">${p.commanderName||p.uid}</div>`;
+      html += `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.78rem">`;
+      html += `<thead><tr style="color:#666;font-size:.7rem">
+        <th style="text-align:left;padding:4px 8px">Tour</th>
+        <th style="text-align:right;padding:4px 8px">Score</th>
+        <th style="text-align:right;padding:4px 8px">Δ Score</th>
+        <th style="text-align:right;padding:4px 8px">Ressources totales</th>
+        <th style="text-align:right;padding:4px 8px">Δ Ressources</th>
+        <th style="text-align:right;padding:4px 8px">Planètes</th>
+        <th style="text-align:right;padding:4px 8px">Victoires</th>
+      </tr></thead><tbody>`;
+
+      snaps.slice(-14).forEach((s, i, arr) => {
+        const prev = i > 0 ? arr[i-1] : null;
+        const dScore = prev ? s.score - prev.score : 0;
+        const dRes   = prev ? s.totalResources - prev.totalResources : 0;
+        const dScoreStr = i === 0 ? '—'
+          : dScore >= 0 ? `<span style="color:#4ade80">+${dScore.toLocaleString()}</span>`
+          : `<span style="color:#f87171">${dScore.toLocaleString()}</span>`;
+        const dResStr = i === 0 ? '—'
+          : dRes >= 0 ? `<span style="color:#4ade80">+${dRes.toLocaleString()}</span>`
+          : `<span style="color:#f87171">${dRes.toLocaleString()}</span>`;
+        // Alerte ligne si delta ressource très élevé par rapport au tour précédent
+        const suspicious = prev && dRes > 200000;
+        const rowStyle = suspicious ? 'background:rgba(255,40,40,.08)' : '';
+        html += `<tr style="${rowStyle};border-bottom:1px solid rgba(255,255,255,.03)">
+          <td style="padding:4px 8px">${s.turn}</td>
+          <td style="text-align:right;padding:4px 8px">${(s.score||0).toLocaleString()}</td>
+          <td style="text-align:right;padding:4px 8px">${dScoreStr}</td>
+          <td style="text-align:right;padding:4px 8px">${(s.totalResources||0).toLocaleString()}</td>
+          <td style="text-align:right;padding:4px 8px">${dResStr}</td>
+          <td style="text-align:right;padding:4px 8px">${s.planetCount||1}</td>
+          <td style="text-align:right;padding:4px 8px">${s.combatWins||0}</td>
+        </tr>`;
+      });
+
+      html += `</tbody></table></div></div>`;
+    });
+
+    el.innerHTML = html;
+
+  } catch(e) {
+    console.error('renderAdmin:', e);
+    el.innerHTML = '<div style="color:#f87171;padding:20px">Erreur de chargement : ' + e.message + '</div>';
+  }
+}
+
 
 function renderDefense() {
   const grid = document.getElementById('defense-grid');
@@ -3645,8 +3615,7 @@ window._showHexPopup = (col, row, event) => {
     </div>
     <button class="btn orange" style="padding:8px;font-size:.8rem" onclick="window._openAttackModal('${cell.uid||''}','${(cell.commander||'').replace(/'/g,"\\'")}','${(cell.planet.name||'').replace(/'/g,"\\'")}',${col},${row});document.getElementById('hex-popup').style.display='none'">
       ${t('attackPlayer')}
-    </button>
-    ${!isAI && (G?.research?.espionage||0) > 0 ? `<button class="btn" style="margin-top:6px;width:100%;padding:8px;font-size:.8rem;background:rgba(150,50,255,.2);border-color:rgba(150,50,255,.5);color:#c084fc" onclick="window._launchSpy('${cell.uid||''}','${(cell.commander||'').replace(/'/g,"\\'")}',true);document.getElementById('hex-popup').style.display='none'">&#128065; Espionner</button>` : ''}`;
+    </button>`;
   // Positionner la popup près du curseur
   const x = Math.min(event.clientX + 10, window.innerWidth - 220);
   const y = Math.min(event.clientY - 20, window.innerHeight - 180);
@@ -4506,6 +4475,11 @@ function showGameScreen() {
   document.getElementById('game-screen').style.display = 'flex';
   updateUI();
   showPage('overview');
+  // Afficher l'onglet admin uniquement pour l'admin
+  const adminBtn = document.getElementById('nav-admin');
+  if (adminBtn && currentUser && currentUser.uid === ADMIN_UID) {
+    adminBtn.style.display = '';
+  }
   setInterval(updateCountdown, 1000);
   setInterval(updateSeasonUI, 60000);
   updateCountdown();
@@ -4971,6 +4945,7 @@ window._notify = notify;
       <button class="nav-btn" onclick="window._showPage('forum')" id="nav-forum"><span class="nav-icon">📡</span><span>Forum RP</span></button>
       <button class="nav-btn" onclick="window._showPage('messages')" id="nav-messages"><span class="nav-icon">✉️</span><span>Messages</span><span id="msg-badge" style="display:none;background:var(--danger);color:#fff;border-radius:10px;padding:1px 6px;font-size:.7rem;margin-left:4px">0</span></button>
       <button class="nav-btn" onclick="window._showPage('log')" id="nav-log"><span class="nav-icon">📜</span><span data-tkey="log">Journal</span></button>
+      <button class="nav-btn" id="nav-admin" style="display:none" onclick="window._showPage('admin')"><span class="nav-icon">⚙️</span><span>Admin</span></button>
     </nav>
 
     <div class="content">
@@ -5243,6 +5218,13 @@ window._notify = notify;
     <div id="profile-modal-content"></div>
   </div>
 </div>
+
+      <!-- PAGE ADMIN -->
+      <div class="page" id="page-admin">
+        <div class="page-title">⚙️ Panneau Admin</div>
+        <div class="page-subtitle">Surveillance des joueurs — visible uniquement pour toi.</div>
+        <div id="admin-content"><div style="color:#aaa;text-align:center;padding:40px">Chargement…</div></div>
+      </div>
 
 <!-- COLONIZE MODAL -->
 <div id="colonize-modal" style="display:none;position:fixed;inset:0;z-index:300;align-items:center;justify-content:center;background:rgba(0,0,0,.75)">
