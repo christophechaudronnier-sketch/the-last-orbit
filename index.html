@@ -3473,22 +3473,7 @@ window._showHexPopup = (col, row, event) => {
   }, 50);
 };
 
-// Surcharger _openColonizeModal pour accepter col/row
-const _origColonize = window._openColonizeModal;
-window._openColonizeModal = (planetName, sector, emoji, col, row) => {
-  window._colonizeHexCol = col !== undefined ? col : null;
-  window._colonizeHexRow = row !== undefined ? row : null;
-  if (!G) return;
-  if (G.planets.length >= maxPlanets()) { notify(t('colonizeMax'), true); return; }
-  if (G.pendingColonization) { notify(t('colonizeAlready'), true); return; }
-  const hasColonizer = G.planets.some(p => (p.fleet||{}).colonizer > 0);
-  if (!hasColonizer) { notify(t('colonizeNoShip'), true); return; }
-  window._colonizeTarget = { planetName, sector, emoji };
-  const modal = document.getElementById('colonize-modal');
-  document.getElementById('colonize-modal-title').textContent = `${emoji} ${planetName}`;
-  document.getElementById('colonize-modal-sector').textContent = `${lang==='fr'?'Secteur':'Sector'} ${sector} · ${t('hexCoords')} (${col !== undefined ? col : '?'},${row !== undefined ? row : '?'})`;
-  modal.style.display = 'flex';
-};
+// (ancien patch supprimé — col/row désormais gérés directement dans _openColonizeModal)
 
 // ========== CLASSEMENT ==========
 async function renderRanking() {
@@ -3788,7 +3773,7 @@ function generateEmptyPlanets(occupiedSectors) {
   }));
 }
 
-window._openColonizeModal = (planetName, sector, emoji) => {
+window._openColonizeModal = (planetName, sector, emoji, col, row) => {
   if (!G) return;
   if (G.planets.length >= maxPlanets()) { notify(t('colonizeMax'), true); return; }
   if (G.pendingColonization) { notify(t('colonizeAlready'), true); return; }
@@ -3796,11 +3781,13 @@ window._openColonizeModal = (planetName, sector, emoji) => {
   const hasColonizer = G.planets.some(p => (p.fleet||{}).colonizer > 0);
   if (!hasColonizer) { notify(t('colonizeNoShip'), true); return; }
 
+  window._colonizeHexCol = col !== undefined ? col : null;
+  window._colonizeHexRow = row !== undefined ? row : null;
   window._colonizeTarget = { planetName, sector, emoji };
 
   const modal = document.getElementById('colonize-modal');
   document.getElementById('colonize-modal-title').textContent = `${emoji} ${planetName}`;
-  document.getElementById('colonize-modal-sector').textContent = `${lang==='fr'?'Secteur':'Sector'} ${sector}`;
+  document.getElementById('colonize-modal-sector').textContent = `${lang==='fr'?'Secteur':'Sector'} ${sector}${col !== undefined ? ` · (${col},${row})` : ''}`;
   modal.style.display = 'flex';
 };
 
@@ -5013,7 +5000,7 @@ window._notify = notify;
   function _queueDefense(id) { if(window._queueDefense) window._queueDefense(id); else setTimeout(()=>_queueDefense(id), 100); }
   function _launchMission(id,name) { if(window._launchMission) window._launchMission(id,name); else setTimeout(()=>_launchMission(id,name), 100); }
   function _openAttackModal(uid,name,planet) { if(window._openAttackModal) window._openAttackModal(uid,name,planet); else setTimeout(()=>_openAttackModal(uid,name,planet), 100); }
-  function _openColonizeModal(n,s,e) { if(window._openColonizeModal) window._openColonizeModal(n,s,e); else setTimeout(()=>_openColonizeModal(n,s,e), 100); }
+  function _openColonizeModal(n,s,e,c,r) { if(window._openColonizeModal) window._openColonizeModal(n,s,e,c,r); else setTimeout(()=>_openColonizeModal(n,s,e,c,r), 100); }
   function _confirmColonize() { if(window._confirmColonize) window._confirmColonize(); else setTimeout(_confirmColonize, 100); }
   function _closeColonizeModal() { if(window._closeColonizeModal) window._closeColonizeModal(); else setTimeout(_closeColonizeModal, 100); }
   function _selectPlanet(i,p) { if(window._selectPlanet) window._selectPlanet(i,p); else setTimeout(()=>_selectPlanet(i,p), 100); }
