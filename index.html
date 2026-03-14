@@ -232,6 +232,25 @@ const T = {
     forumTitleRequired: "Le sujet doit avoir un titre.",
     forumBodyRequired: "Le premier message ne peut pas être vide.",
     forumCreated: "Sujet créé !",
+    // Espionnage
+    spyBtn: "🔍 ESPIONNER",
+    spyTitle: "Rapport d'espionnage",
+    spyLaunching: "Sonde envoyée...",
+    spyNoTech: "🔒 Requiert Technologie d'Espionnage niveau 1.",
+    spyNoEnergy: "Énergie insuffisante ! (coût : 100)",
+    spySelf: "Vous ne pouvez pas vous espionner vous-même.",
+    spySuccess: "Rapport d'espionnage reçu.",
+    spyCaught: "⚠️ Contre-espionnage détecté ! Vous avez été repéré.",
+    spyAlertMsg: "👁️ Tentative d'espionnage détectée ! Commandant : ",
+    spyResources: "Ressources",
+    spyFleet: "Flotte",
+    spyDefenses: "Défenses",
+    spyBuildings: "Bâtiments",
+    spyUnknown: "Données corrompues",
+    spyApprox: "≈ valeurs approximatives",
+    spyBlocked: "Signal brouillé — données inaccessibles.",
+    spyLevelLabel: "Espionnage adversaire",
+    spyCost: "Coût : 100 ⚡ énergie",
   },
   en: {
     title: "THE LAST ORBIT",
@@ -438,6 +457,25 @@ const T = {
     forumTitleRequired: "The topic must have a title.",
     forumBodyRequired: "The first message cannot be empty.",
     forumCreated: "Topic created!",
+    // Espionage
+    spyBtn: "🔍 SPY",
+    spyTitle: "Espionage Report",
+    spyLaunching: "Probe launched...",
+    spyNoTech: "🔒 Requires Espionage Technology level 1.",
+    spyNoEnergy: "Insufficient energy! (cost: 100)",
+    spySelf: "You cannot spy on yourself.",
+    spySuccess: "Espionage report received.",
+    spyCaught: "⚠️ Counter-espionage detected! You have been spotted.",
+    spyAlertMsg: "👁️ Espionage attempt detected! Commander: ",
+    spyResources: "Resources",
+    spyFleet: "Fleet",
+    spyDefenses: "Defenses",
+    spyBuildings: "Buildings",
+    spyUnknown: "Corrupted data",
+    spyApprox: "≈ approximate values",
+    spyBlocked: "Signal jammed — data inaccessible.",
+    spyLevelLabel: "Enemy espionage",
+    spyCost: "Cost: 100 ⚡ energy",
   }
 };
 
@@ -1061,6 +1099,9 @@ async function processTurn() {
 
     // Traitement des tours IA (une seule fois)
     await processAITurns();
+
+    // Vérifier les alertes d'espionnage reçues
+    await checkEspionageAlerts();
 
     // Avancer nextTurnTime jusqu'au prochain minuit futur
     G.nextTurnTime = nextMidnight();
@@ -2048,7 +2089,190 @@ window._confirmAttack = async () => {
   } catch(e) { notify(lang==='fr'?'Erreur d\'envoi':'Send error', true); }
 };
 
-// ========== ALLIANCE ==========
+// ========== ESPIONNAGE ==========
+window._openSpyModal = async (targetUid, targetName, targetPlanet) => {
+  if (!G || !currentUser) return;
+  if (targetUid === currentUser.uid) { notify(t('spySelf'), true); return; }
+
+  // Prérequis : espionnage niveau 1
+  const myEspLevel = G.research?.espionage || 0;
+  if (myEspLevel < 1) { notify(t('spyNoTech'), true); return; }
+
+  // Coût énergie
+  if ((G.resources?.energy || 0) < 100) { notify(t('spyNoEnergy'), true); return; }
+
+  // Charger les données de la cible
+  notify(t('spyLaunching'));
+  let targetData = null;
+  try {
+    const snap = await getDoc(doc(db, 'players', targetUid));
+    if (snap.exists()) targetData = snap.data();
+  } catch(e) { console.error('Spy load error:', e); }
+
+  if (!targetData) { notify('Cible introuvable.', true); return; }
+
+  // Déduire l'énergie
+  G.resources.energy = Math.max(0, (G.resources.energy || 0) - 100);
+  await saveGame();
+  updateUI();
+
+  const enemyEspLevel = targetData.research?.espionage || 0;
+  const gap = myEspLevel - enemyEspLevel; // positif = avantageux pour nous
+
+  // Probabilité d'être détecté : max(0, enemyLevel - myLevel) * 30%
+  const catchProb = Math.max(0, enemyEspLevel - myEspLevel) * 0.30;
+  const caught = Math.random() < catchProb;
+
+  // Construire le rapport selon le gap
+  let reportHTML = '';
+  let reportTitle = t('spyTitle');
+
+  if (gap >= 2) {
+    // Rapport complet
+    const res = targetData.resources || {};
+    const mp  = (targetData.planets || [])[0] || {};
+    const fl  = mp.fleet || {};
+    const def = mp.defense || {};
+    const bld = mp.buildings || {};
+    reportHTML = _buildSpyReport('full', res, fl, def, bld, targetName, targetPlanet, enemyEspLevel);
+  } else if (gap === 1) {
+    // Ressources + flotte
+    const res = targetData.resources || {};
+    const mp  = (targetData.planets || [])[0] || {};
+    const fl  = mp.fleet || {};
+    reportHTML = _buildSpyReport('partial', res, fl, null, null, targetName, targetPlanet, enemyEspLevel);
+  } else if (gap === 0) {
+    // Ressources seulement
+    const res = targetData.resources || {};
+    reportHTML = _buildSpyReport('resources', res, null, null, null, targetName, targetPlanet, enemyEspLevel);
+  } else if (gap === -1) {
+    // Ressources bruitées
+    const res = targetData.resources || {};
+    const noisedRes = {
+      metal:   Math.max(0, Math.floor((res.metal   || 0) * (0.7 + Math.random() * 0.6))),
+      crystal: Math.max(0, Math.floor((res.crystal || 0) * (0.7 + Math.random() * 0.6))),
+      energy:  Math.max(0, Math.floor((res.energy  || 0) * (0.7 + Math.random() * 0.6))),
+    };
+    reportHTML = _buildSpyReport('noisy', noisedRes, null, null, null, targetName, targetPlanet, enemyEspLevel);
+  } else {
+    // gap <= -2 : rapport vide
+    reportHTML = _buildSpyReport('blocked', null, null, null, null, targetName, targetPlanet, enemyEspLevel);
+  }
+
+  // Si détecté → écrire une alerte dans le journal de l'ennemi (Firestore)
+  if (caught) {
+    try {
+      const alertMsg = t('spyAlertMsg') + G.commanderName;
+      await addDoc(collection(db, 'espionage_alerts'), {
+        targetUid: targetUid,
+        attackerUid: currentUser.uid,
+        attackerName: G.commanderName,
+        message: alertMsg,
+        turn: G.turn,
+        createdAt: Date.now(),
+        read: false,
+      });
+    } catch(e) { console.error('Spy alert write error:', e); }
+  }
+
+  // Ajouter au journal local
+  addLog(`🔍 Espionnage de ${targetPlanet} (${targetName}) — ${gap >= 0 ? 'succès' : 'données partielles'}${caught ? ' — DÉTECTÉ !' : ''}`, caught ? 'danger' : 'info');
+
+  // Afficher le modal
+  _showSpyModal(reportHTML, caught);
+};
+
+function _buildSpyReport(level, res, fleet, defense, buildings, targetName, targetPlanet, enemyEspLevel) {
+  const fmtR = n => fmt(n || 0);
+  let html = `<div style="margin-bottom:14px">
+    <div style="font-family:'Orbitron',monospace;font-size:.72rem;color:var(--text2);letter-spacing:2px;margin-bottom:4px">CIBLE</div>
+    <div style="font-size:.9rem;color:var(--accent)">${targetPlanet} · ${targetName}</div>
+    <div style="font-size:.75rem;color:var(--text2);margin-top:2px">${t('spyLevelLabel')} : ${enemyEspLevel} · ${t('spyCost')}</div>
+  </div>`;
+
+  if (level === 'blocked') {
+    html += `<div style="text-align:center;padding:24px;color:var(--danger);font-family:'Orbitron',monospace;font-size:.85rem;letter-spacing:2px">${t('spyBlocked')}</div>`;
+    return html;
+  }
+
+  // Ressources
+  const approxLabel = level === 'noisy' ? ` <span style="font-size:.65rem;color:var(--accent3)">(${t('spyApprox')})</span>` : '';
+  html += `<div style="margin-bottom:14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:6px;padding:12px">
+    <div style="font-family:'Orbitron',monospace;font-size:.7rem;color:var(--text2);letter-spacing:2px;margin-bottom:10px">📦 ${t('spyResources').toUpperCase()}${approxLabel}</div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap">
+      <span style="color:var(--metal)">🪨 ${fmtR(res?.metal)}</span>
+      <span style="color:var(--crystal)">💎 ${fmtR(res?.crystal)}</span>
+      <span style="color:#60a5fa">⚡ ${fmtR(res?.energy)}</span>
+    </div>
+  </div>`;
+
+  if (level === 'noisy' || level === 'resources') return html;
+
+  // Flotte
+  if (fleet) {
+    const fleetEntries = SHIPS.map(s => {
+      const qty = fleet[s.id] || 0;
+      return qty > 0 ? `<span>${s.icon} ${qty}× ${getSName(s)}</span>` : '';
+    }).filter(Boolean);
+    html += `<div style="margin-bottom:14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:6px;padding:12px">
+      <div style="font-family:'Orbitron',monospace;font-size:.7rem;color:var(--text2);letter-spacing:2px;margin-bottom:10px">🚀 ${t('spyFleet').toUpperCase()}</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:.85rem">${fleetEntries.length ? fleetEntries.join('') : '<span style="color:var(--text2)">—</span>'}</div>
+    </div>`;
+  }
+
+  if (level === 'partial') return html;
+
+  // Défenses
+  if (defense) {
+    const defEntries = DEFENSES.map(d => {
+      const qty = defense[d.id] || 0;
+      return qty > 0 ? `<span>${d.icon} ${qty}× ${lang==='fr'?d.nameFr:d.nameEn}</span>` : '';
+    }).filter(Boolean);
+    html += `<div style="margin-bottom:14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:6px;padding:12px">
+      <div style="font-family:'Orbitron',monospace;font-size:.7rem;color:var(--text2);letter-spacing:2px;margin-bottom:10px">🛡️ ${t('spyDefenses').toUpperCase()}</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:.85rem">${defEntries.length ? defEntries.join('') : '<span style="color:var(--text2)">—</span>'}</div>
+    </div>`;
+  }
+
+  // Bâtiments
+  if (buildings) {
+    const bldEntries = BUILDINGS.map(b => {
+      const lvl = buildings[b.id] || 0;
+      return lvl > 0 ? `<span>${b.icon} ${getBName(b)} nv.${lvl}</span>` : '';
+    }).filter(Boolean);
+    html += `<div style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:6px;padding:12px">
+      <div style="font-family:'Orbitron',monospace;font-size:.7rem;color:var(--text2);letter-spacing:2px;margin-bottom:10px">🏗️ ${t('spyBuildings').toUpperCase()}</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:.85rem">${bldEntries.length ? bldEntries.join('') : '<span style="color:var(--text2)">—</span>'}</div>
+    </div>`;
+  }
+
+  return html;
+}
+
+function _showSpyModal(reportHTML, caught) {
+  // Supprimer un éventuel modal existant
+  document.getElementById('spy-modal')?.remove();
+
+  const caughtBanner = caught ? `
+    <div style="background:rgba(255,40,40,.12);border:1px solid rgba(255,60,60,.4);border-radius:6px;padding:10px 14px;margin-bottom:16px;font-size:.82rem;color:var(--danger);font-family:'Orbitron',monospace;letter-spacing:1px">
+      ⚠️ ${t('spyCaught')}
+    </div>` : '';
+
+  const html = `<div id="spy-modal" style="position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:9999;display:flex;align-items:center;justify-content:center">
+    <div style="background:var(--panel2);border:1px solid rgba(0,200,255,.3);border-radius:8px;padding:28px;max-width:460px;width:94vw;box-shadow:0 0 40px rgba(0,200,255,.1);max-height:90vh;overflow-y:auto">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+        <div style="font-family:'Orbitron',monospace;font-size:.85rem;color:var(--accent);letter-spacing:2px">🔍 ${t('spyTitle').toUpperCase()}</div>
+        <button onclick="document.getElementById('spy-modal').remove()" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:1.2rem">✕</button>
+      </div>
+      ${caughtBanner}
+      ${reportHTML}
+      <button onclick="document.getElementById('spy-modal').remove()" style="width:100%;margin-top:18px;padding:10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.15);border-radius:4px;color:var(--text);font-family:'Orbitron',monospace;font-size:.75rem;letter-spacing:2px;cursor:pointer">FERMER</button>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+
 
 let _allianceUnsub = null; // listener chat temps réel
 
@@ -3562,6 +3786,7 @@ async function renderGalaxy() {
         <button class="btn orange" style="padding:6px;font-size:.75rem" onclick="window._openAttackModal('${p.uid||''}','${(p.commanderName||'').replace(/'/g,"\\'")}','${(mp.name||'').replace(/'/g,"\\'")}')">
           ${t('attackPlayer')}
         </button>
+        ${(G.research?.espionage||0) >= 1 ? `<button class="btn" style="padding:6px;font-size:.75rem;margin-top:4px;border-color:rgba(0,200,255,.4);color:var(--accent)" onclick="window._openSpyModal('${p.uid||''}','${(p.commanderName||'').replace(/'/g,"\\'")}','${(mp.name||'').replace(/'/g,"\\'")}')"> ${t('spyBtn')}</button>` : ''}
       </div>`;
     }).join('') + `</div>`;
   }
@@ -3615,7 +3840,8 @@ window._showHexPopup = (col, row, event) => {
     </div>
     <button class="btn orange" style="padding:8px;font-size:.8rem" onclick="window._openAttackModal('${cell.uid||''}','${(cell.commander||'').replace(/'/g,"\\'")}','${(cell.planet.name||'').replace(/'/g,"\\'")}',${col},${row});document.getElementById('hex-popup').style.display='none'">
       ${t('attackPlayer')}
-    </button>`;
+    </button>
+    ${(G.research?.espionage||0) >= 1 ? `<button class="btn" style="padding:8px;font-size:.8rem;margin-top:6px;width:100%;border-color:rgba(0,200,255,.4);color:var(--accent)" onclick="window._openSpyModal('${cell.uid||''}','${(cell.commander||'').replace(/'/g,"\\'")}','${(cell.planet.name||'').replace(/'/g,"\\'")}');document.getElementById('hex-popup').style.display='none'">${t('spyBtn')}</button>` : ''}`;
   // Positionner la popup près du curseur
   const x = Math.min(event.clientX + 10, window.innerWidth - 220);
   const y = Math.min(event.clientY - 20, window.innerHeight - 180);
@@ -4452,6 +4678,34 @@ function showAuthScreen() {
   document.getElementById('auth-screen').style.display = 'flex';
   document.getElementById('game-screen').style.display = 'none';
 }
+
+// Vérifie et injecte les alertes de contre-espionnage dans le journal
+async function checkEspionageAlerts() {
+  if (!currentUser || !G) return;
+  try {
+    const snap = await getDocs(query(
+      collection(db, 'espionage_alerts'),
+      where('targetUid', '==', currentUser.uid),
+      where('read', '==', false)
+    ));
+    if (snap.empty) return;
+    for (const alertDoc of snap.docs) {
+      const data = alertDoc.data();
+      addLog(data.message || '👁️ Tentative d\'espionnage détectée !', 'danger');
+      await updateDoc(doc(db, 'espionage_alerts', alertDoc.id), { read: true });
+    }
+    // Rafraîchir le journal si on est dessus
+    const activePage = document.querySelector('.page.active');
+    if (activePage && activePage.id === 'page-log') renderLog();
+    if (snap.size > 0) {
+      notify(lang === 'fr'
+        ? `👁️ ${snap.size} alerte${snap.size > 1 ? 's' : ''} d'espionnage détectée${snap.size > 1 ? 's' : ''} !`
+        : `👁️ ${snap.size} espionage attempt${snap.size > 1 ? 's' : ''} detected!`,
+        true
+      );
+    }
+  } catch(e) { console.error('checkEspionageAlerts error:', e); }
+}
 // Listener temps réel sur le propre document Firebase du joueur
 // Détecte les changements distants (ex: acceptation dans une alliance)
 let _playerUnsub = null;
@@ -4487,6 +4741,7 @@ function showGameScreen() {
   _startMsgListener();
   initAIPlayers();
   loadSeason().then(() => updateSeasonUI());
+  checkEspionageAlerts();
 }
 function showSetup() {
   document.getElementById('auth-screen').style.display = 'none';
