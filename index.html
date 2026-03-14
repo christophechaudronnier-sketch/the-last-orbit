@@ -1158,7 +1158,7 @@ function makeAIGame(profile, coordIndex) {
     commanderName: profile.commanderName,
     turn: 1,
     nextTurnTime: nextMidnight(),
-    resources: { metal: 3000, crystal: 1000, energy: 200 },
+    resources: { metal: 5000, crystal: 3000, energy: 500 },
     research: { combustion:0, weapons:0, shields:0, espionage:0, hyperdrive:0, colonization:0 },
     planets: [{
       name: profile.planetName,
@@ -1203,6 +1203,17 @@ async function initAIPlayers() {
           await setDoc(ref, data);
           console.log('IA coords mises à jour:', profile.commanderName, fixed);
         }
+        // Migration : si l'IA a très peu de ressources (ancien démarrage trop faible), boost de rattrapage
+        const res = data.resources || {};
+        if ((res.metal||0) < 1000 && (res.crystal||0) < 1000) {
+          data.resources = {
+            metal:   Math.max(res.metal||0,   5000),
+            crystal: Math.max(res.crystal||0, 3000),
+            energy:  Math.max(res.energy||0,   500),
+          };
+          await setDoc(ref, data);
+          console.log('IA ressources boostées:', profile.commanderName);
+        }
       }
     } catch(e) { console.error('initAI error:', profile.id, e); }
   }
@@ -1210,7 +1221,9 @@ async function initAIPlayers() {
 
 // Calcule la production pour une IA (même logique que getProduction mais sans G)
 function getAIProduction(ai) {
-  const prod = { metal:200, crystal:100, energy:100 };
+  // Production de base plus généreuse pour compenser le fait que l'IA
+  // ne joue pas manuellement son premier tour comme un humain
+  const prod = { metal:500, crystal:250, energy:200 };
   (ai.planets||[]).forEach(planet => {
     BUILDINGS.forEach(b => {
       const lv = (planet.buildings||{})[b.id]||0;
@@ -1355,7 +1368,7 @@ function aiDecide(ai) {
     }
   });
 
-  return actions; // toutes les actions décidées, comme la file humaine
+  return actions.slice(0, 2); // max 2 actions par tour — cohérent avec les humains, évite l'épuisement de ressources
 }
 
 function getBuildingCostAI(b, lv) {
