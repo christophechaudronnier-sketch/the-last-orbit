@@ -2081,11 +2081,16 @@ window._confirmAttack = async () => {
         window._attackTarget.col ?? 0, window._attackTarget.row ?? 0,
         G.research.combustion || 0
       ),
-      arrivalTimestamp: Date.now() + calcTravelTurns(
-        G.planets[0].hexCol ?? 0, G.planets[0].hexRow ?? 0,
-        window._attackTarget.col ?? 0, window._attackTarget.row ?? 0,
-        G.research.combustion || 0
-      ) * 24 * 60 * 60 * 1000,
+      arrivalTimestamp: (() => {
+        const turns = calcTravelTurns(
+          G.planets[0].hexCol ?? 0, G.planets[0].hexRow ?? 0,
+          window._attackTarget.col ?? 0, window._attackTarget.row ?? 0,
+          G.research.combustion || 0
+        );
+        const d = new Date();
+        d.setHours(24 * turns, 0, 0, 0); // prochain minuit dans N tours
+        return d.getTime();
+      })(),
       status: 'pending',
       createdAt: Date.now(),
     });
