@@ -109,7 +109,7 @@ const T = {
     attackCancelled: "Attaque annulée (flotte insuffisante).",
     attackNoFleet: "Vous n'avez aucun vaisseau !",
     attackSelf: "Vous ne pouvez pas vous attaquer vous-même.",
-    attackAlready: "Une attaque est déjà en cours, attendez le retour de votre flotte.",
+    attackAlready: "Cette planète a déjà une attaque en cours, attendez le retour de sa flotte.",
     combatVictory: "VICTOIRE",
     combatDefeat: "DÉFAITE",
     combatResult: "Rapport de combat",
@@ -334,7 +334,7 @@ const T = {
     attackCancelled: "Attack cancelled (insufficient fleet).",
     attackNoFleet: "You have no ships!",
     attackSelf: "You cannot attack yourself.",
-    attackAlready: "An attack is already underway, wait for your fleet to return.",
+    attackAlready: "This planet already has an attack in progress, wait for its fleet to return.",
     combatVictory: "VICTORY",
     combatDefeat: "DEFEAT",
     combatResult: "Combat report",
@@ -1979,29 +1979,72 @@ function calcTravelTurns(col1, row1, col2, row2, propulsionLevel) {
 
 window._openAttackModal = async (targetUid, targetName, targetPlanet, targetCol, targetRow) => {
   if (!G) return;
-  const totalFleet = Object.values(G.planets[0].fleet||{}).reduce((a,b)=>a+b,0);
-  if (totalFleet === 0) { notify(t('attackNoFleet'), true); return; }
 
-  // Bloquer si une attaque est déjà en cours (flotte en vol)
+  // Vérifier qu'au moins une planète a une flotte disponible
+  const anyFleet = G.planets.some(p => Object.values(p.fleet||{}).reduce((a,b)=>a+b,0) > 0);
+  if (!anyFleet) { notify(t('attackNoFleet'), true); return; }
+
+  window._attackTarget = { uid: targetUid, name: targetName, planet: targetPlanet, col: targetCol ?? 0, row: targetRow ?? 0 };
+
+  document.getElementById('attack-modal-title').textContent =
+    `${t('attackTitle')} — ${targetPlanet}`;
+
+  // Construire les onglets de sélection de planète source
+  // Récupérer les attaques en cours pour griser les planètes déjà en vol
+  let inFlightPlanets = new Set();
   try {
     const inFlight = await getDocs(query(collection(db, 'attacks'),
       where('attackerUid', '==', currentUser.uid),
       where('status', '==', 'pending')
     ));
-    if (!inFlight.empty) { notify(t('attackAlready'), true); return; }
+    inFlight.forEach(d => inFlightPlanets.add(d.data().attackerPlanet));
   } catch(e) {}
 
-  window._attackTarget = { uid: targetUid, name: targetName, planet: targetPlanet, col: targetCol, row: targetRow };
-  window._attackFleet  = { fighter:0, cruiser:0, battleship:0, colonizer:0 };
-  window._attackSourcePlanet = G.planets[0]; // on attaque depuis la planète principale
+  const tabsEl = document.getElementById('attack-source-tabs');
+  tabsEl.innerHTML = G.planets.map((p, i) => {
+    const fleetTotal = Object.values(p.fleet||{}).reduce((a,b)=>a+b,0);
+    const busy = inFlightPlanets.has(p.name);
+    const disabled = busy || fleetTotal === 0;
+    const label = busy ? `${p.emoji||'🪐'} ${p.name} 🚀` : `${p.emoji||'🪐'} ${p.name}`;
+    return `<button id="atk-tab-${i}" onclick="window._selectAttackSource(${i})"
+      style="font-family:'Orbitron',monospace;font-size:.65rem;padding:5px 10px;border-radius:3px;cursor:${disabled?'not-allowed':'pointer'};
+             border:1px solid var(--border);background:var(--panel);color:${disabled?'var(--text2)':'var(--text)'};
+             opacity:${disabled?'0.4':'1'};transition:all .2s"
+      ${disabled ? 'disabled' : ''}>${label}</button>`;
+  }).join('');
 
-  document.getElementById('attack-modal-title').textContent =
-    `${t('attackTitle')} — ${targetPlanet}`;
+  // Sélectionner par défaut la première planète disponible
+  const defaultIdx = G.planets.findIndex((p, i) => {
+    const busy = inFlightPlanets.has(p.name);
+    const fleetTotal = Object.values(p.fleet||{}).reduce((a,b)=>a+b,0);
+    return !busy && fleetTotal > 0;
+  });
+  if (defaultIdx === -1) { notify(t('attackAlready'), true); return; }
+  window._selectAttackSource(defaultIdx);
 
-  const wB = 1+G.research['weapons']*0.25;
-  const sB = 1+G.research['shields']*0.25;
+  document.getElementById('attack-modal').style.display = 'flex';
+};
+
+window._selectAttackSource = (planetIdx) => {
+  const sp = G.planets[planetIdx];
+  if (!sp) return;
+  window._attackSourcePlanet = sp;
+  window._attackFleet = { fighter:0, cruiser:0, battleship:0, colonizer:0 };
+
+  // Mettre à jour l'apparence des onglets
+  G.planets.forEach((_, i) => {
+    const tab = document.getElementById(`atk-tab-${i}`);
+    if (!tab) return;
+    tab.style.background = i === planetIdx ? 'var(--accent2)' : 'var(--panel)';
+    tab.style.color = i === planetIdx ? '#000' : 'var(--text)';
+    tab.style.borderColor = i === planetIdx ? 'var(--accent2)' : 'var(--border)';
+  });
+
+  // Mettre à jour la liste de vaisseaux
+  const wB = 1 + (G.research['weapons']||0) * 0.25;
+  const sB = 1 + (G.research['shields']||0) * 0.25;
   const rows = SHIPS.map(s => {
-    const owned = (G.planets[0].fleet||{})[s.id]||0;
+    const owned = (sp.fleet||{})[s.id]||0;
     if (owned === 0) return '';
     return `<div class="attack-ship-row">
       <span style="font-size:1.5rem">${s.icon}</span>
@@ -2017,25 +2060,24 @@ window._openAttackModal = async (targetUid, targetName, targetPlanet, targetCol,
       </div>
     </div>`;
   }).join('');
-
   document.getElementById('attack-ships-list').innerHTML = rows || `<div style="color:var(--text2)">${t('attackNoFleet')}</div>`;
   document.getElementById('attack-power-preview').textContent = '⚔️ 0';
 
-  // Afficher le temps de trajet estimé
+  // Recalculer le temps de trajet depuis cette planète
   const travelTurns = calcTravelTurns(
-    G.planets[0].hexCol ?? 0, G.planets[0].hexRow ?? 0,
-    targetCol ?? 0, targetRow ?? 0,
+    sp.hexCol ?? 0, sp.hexRow ?? 0,
+    window._attackTarget.col ?? 0, window._attackTarget.row ?? 0,
     G.research.combustion || 0
   );
   const travelEl = document.getElementById('attack-travel-time');
   if (travelEl) travelEl.textContent = lang === 'fr'
     ? `🚀 Temps de trajet : ${travelTurns} tour${travelTurns > 1 ? 's' : ''}`
     : `🚀 Travel time: ${travelTurns} turn${travelTurns > 1 ? 's' : ''}`;
-  document.getElementById('attack-modal').style.display = 'flex';
 };
 
 window._adjustAttackQty = (shipId, delta) => {
-  const owned = (G.planets[0].fleet||{})[shipId]||0;
+  const sp = window._attackSourcePlanet || G.planets[0];
+  const owned = (sp.fleet||{})[shipId]||0;
   const current = window._attackFleet[shipId]||0;
   window._attackFleet[shipId] = Math.max(0, Math.min(owned, current + delta));
   const el = document.getElementById('atk-qty-'+shipId);
@@ -2058,47 +2100,44 @@ window._confirmAttack = async () => {
   if (!window._attackTarget) return;
   const totalSent = Object.values(window._attackFleet||{}).reduce((a,b)=>a+b,0);
   if (totalSent === 0) { notify(t('attackNoFleet'), true); return; }
+  const sp = window._attackSourcePlanet || G.planets[0];
   try {
     const existing = await getDocs(query(collection(db, 'attacks'),
       where('attackerUid', '==', currentUser.uid),
+      where('attackerPlanet', '==', sp.name),
       where('status', '==', 'pending')
     ));
     if (!existing.empty) { notify(t('attackAlready'), true); return; }
   } catch(e) {}
   try {
+    const travelTurns = calcTravelTurns(
+      sp.hexCol ?? 0, sp.hexRow ?? 0,
+      window._attackTarget.col ?? 0, window._attackTarget.row ?? 0,
+      G.research.combustion || 0
+    );
     await addDoc(collection(db, 'attacks'), {
       attackerUid: currentUser.uid,
       attackerName: G.commanderName,
-      attackerPlanet: G.planets[0].name,
+      attackerPlanet: sp.name,
       targetUid: window._attackTarget.uid,
       targetName: window._attackTarget.name,
       targetPlanet: window._attackTarget.planet,
       fleet: { ...window._attackFleet },
       attackerResearch: { ...G.research },
       turn: G.turn,
-      arrivalTurn: G.turn + calcTravelTurns(
-        G.planets[0].hexCol ?? 0, G.planets[0].hexRow ?? 0,
-        window._attackTarget.col ?? 0, window._attackTarget.row ?? 0,
-        G.research.combustion || 0
-      ),
+      arrivalTurn: G.turn + travelTurns,
       arrivalTimestamp: (() => {
-        const turns = calcTravelTurns(
-          G.planets[0].hexCol ?? 0, G.planets[0].hexRow ?? 0,
-          window._attackTarget.col ?? 0, window._attackTarget.row ?? 0,
-          G.research.combustion || 0
-        );
         const d = new Date();
-        d.setHours(24 * turns, 0, 0, 0); // prochain minuit dans N tours
+        d.setHours(24 * travelTurns, 0, 0, 0);
         return d.getTime();
       })(),
       status: 'pending',
       createdAt: Date.now(),
     });
     // Déduire les vaisseaux envoyés de la flotte (indisponibles pendant l'attaque)
-    const mp = G.planets[0];
     for (const [type, qty] of Object.entries(window._attackFleet)) {
-      if (qty > 0 && mp.fleet[type] !== undefined) {
-        mp.fleet[type] = Math.max(0, mp.fleet[type] - qty);
+      if (qty > 0 && sp.fleet[type] !== undefined) {
+        sp.fleet[type] = Math.max(0, sp.fleet[type] - qty);
       }
     }
     await saveGame();
@@ -5555,6 +5594,7 @@ window._notify = notify;
       <div id="attack-modal-title" style="font-family:'Orbitron',monospace;font-size:.85rem;color:var(--accent2);letter-spacing:2px;text-transform:uppercase">Attaque</div>
       <button onclick="window._closeAttackModal()" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:1.2rem">✕</button>
     </div>
+    <div id="attack-source-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px"></div>
     <div style="font-size:.8rem;color:var(--text2);margin-bottom:20px" id="attack-modal-sub">Choisissez les vaisseaux à envoyer au combat. Résultats au prochain tour.</div>
     <div id="attack-ships-list" style="display:flex;flex-direction:column;gap:12px;margin-bottom:20px"></div>
     <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-top:1px solid var(--border);margin-bottom:8px">
