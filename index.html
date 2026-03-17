@@ -980,145 +980,23 @@ function nextMidnightAfter(ts) {
 // Calcule combien de tours se sont écoulés depuis nextTurnTime
 // nextTurnTime = minuit du prochain tour attendu
 // Si now >= nextTurnTime → au moins 1 tour à traiter
-function countMissedTurns() {
-  const now = Date.now();
-  if (now < G.nextTurnTime) return 0;
-  // On compte combien de minuits sont passés depuis nextTurnTime
-  let count = 1;
-  let t = nextMidnightAfter(G.nextTurnTime);
-  while (t <= now && count < 30) {
-    count++;
-    t = nextMidnightAfter(t);
-  }
-  return count;
-}
-
-let _processingTurn = false;
-async function processTurn() {
-  const now = Date.now();
-  if (now < G.nextTurnTime) return;
-  if (_processingTurn) return;
-  _processingTurn = true;
+// Le tick de tour est géré exclusivement par la Cloud Function (minuit serveur).
+// Le client se contente de recharger G depuis Firestore quand le compteur tombe à zéro.
+let _syncingTurn = false;
+async function syncTurnFromServer() {
+  if (_syncingTurn) return;
+  _syncingTurn = true;
   try {
-    // Recharger G depuis Firestore pour éviter le double tour :
-    // la Cloud Function a peut-être déjà traité ce tour pendant que
-    // l'onglet était ouvert (G en mémoire = version périmée).
-    try {
-      const freshDoc = await getDoc(doc(db, 'players', currentUser.uid));
-      if (freshDoc.exists()) {
-        const freshG = freshDoc.data();
-        if (freshG.nextTurnTime && Date.now() < freshG.nextTurnTime) {
-          // La CF a déjà avancé nextTurnTime → on synchronise et on sort
-          Object.assign(G, freshG);
-          console.log('processTurn: tour déjà traité par la Cloud Function, synchronisation.');
-          return;
-        }
-        // Sinon on repart de la version fraîche (évite les données périmées)
-        Object.assign(G, freshG);
-      }
-    } catch(syncErr) {
-      console.warn('processTurn: impossible de recharger depuis Firestore, on continue avec G local.', syncErr);
-    }
-
-    const missedTurns = countMissedTurns();
-    if (missedTurns === 0) return;
-
-    // Pour chaque tour manqué, appliquer la production et les constructions
-    for (let i = 0; i < missedTurns; i++) {
-      const isLastTurn = (i === missedTurns - 1);
-      const prod = getProduction();
-      G.resources.metal   += prod.metal;
-      G.resources.crystal += prod.crystal;
-      G.resources.energy  += prod.energy;
-
-      // Traiter les files de construction de chaque planète
-      // On n'applique les constructions qu'une seule fois (au premier tour),
-      // car la file ne peut être remplie qu'une fois entre deux connexions
-      if (i === 0) {
-        (G.planets||[]).forEach((planet, idx) => {
-          const queue = planet.buildQueue||[];
-          for (const item of queue) {
-            if (item.type === 'building') {
-              planet.buildings[item.id] = (planet.buildings[item.id]||0) + 1;
-              const planetLabel = idx===0 ? '' : ` (${planet.name})`;
-              addLog(`✅ ${item.name}${planetLabel}`, 'info');
-            } else if (item.type === 'research') {
-              G.research[item.id] = (G.research[item.id]||0) + 1;
-              addLog(`✅ ${item.name}`, 'info');
-            } else if (item.type === 'ship') {
-              planet.fleet[item.id] = (planet.fleet[item.id]||0) + item.qty;
-              const planetLabel = idx===0 ? '' : ` (${planet.name})`;
-              addLog(`✅ ${item.qty}x ${item.name}${planetLabel}`, 'info');
-            } else if (item.type === 'defense') {
-              if (!planet.defense) planet.defense = {};
-              planet.defense[item.id] = (planet.defense[item.id]||0) + item.qty;
-              const planetLabel = idx===0 ? '' : ` (${planet.name})`;
-              addLog(`✅ ${item.qty}x ${item.name}${planetLabel}`, 'info');
-            }
-          }
-          planet.buildQueue = [];
-        });
-
-        // Colonisation en cours
-        if (G.pendingColonization) {
-          const pc = G.pendingColonization;
-          if (G.planets.length < maxPlanets()) {
-            const emojis = ['🪐','🌍','🌑','🌕','🔴','🟤','🔵'];
-            const newPlanet = {
-              ...makePlanet(pc.planetName, emojis[Math.floor(Math.random()*emojis.length)], pc.sector, false),
-              hexCol: pc.hexCol !== undefined ? pc.hexCol : Math.floor(Math.random()*9),
-              hexRow: pc.hexRow !== undefined ? pc.hexRow : Math.floor(Math.random()*9),
-            };
-            G.planets.push(newPlanet);
-            addLog(`${t('colonizeSuccess')} ${pc.planetName} (Secteur ${pc.sector})`, 'victory');
-          }
-          G.pendingColonization = null;
-        }
-
-        // Missions actives
-        for (const m of G.activeMissions) processMissionResult(m);
-        G.activeMissions = [];
-      }
-
-      G.turn++;
-      // Log uniquement pour le dernier tour (évite de spammer le journal)
-      if (isLastTurn) {
-        const msg = missedTurns > 1
-          ? `🌅 ${lang==='fr'?'Rattrapage':'Catch-up'} ${missedTurns} ${lang==='fr'?'tours':'turns'} — +${prod.metal * missedTurns}🪨 +${prod.crystal * missedTurns}💎 +${prod.energy * missedTurns}⚡`
-          : `🌅 ${lang==='fr'?'Tour':'Turn'} ${G.turn} — +${prod.metal}🪨 +${prod.crystal}💎 +${prod.energy}⚡`;
-        addLog(msg, 'info');
-      }
-    }
-
-    // Traitement des combats multijoueur (une seule fois après tous les tours)
-    await processIncomingAttacks();
-
-    // Traitement des mouvements de flotte
-    await processFleetMoves();
-
-    // Traitement des tours IA (une seule fois)
-    await processAITurns();
-
-    // Vérifier les alertes d'espionnage reçues
-    await checkEspionageAlerts();
-
-    // Avancer nextTurnTime jusqu'au prochain minuit futur
-    G.nextTurnTime = nextMidnight();
-    G.lastSeen = Date.now();
-    // Score mis à jour uniquement par le tick de minuit (Cloud Function)
-    await saveGame();
-
-    if (missedTurns > 1) {
-      notify(lang==='fr' ? `⏩ ${missedTurns} tours rattrapés !` : `⏩ ${missedTurns} turns caught up!`);
-    } else {
+    const freshDoc = await getDoc(doc(db, 'players', currentUser.uid));
+    if (freshDoc.exists()) {
+      Object.assign(G, freshDoc.data());
+      updateUI();
       notify(t('turnStarted'));
     }
-    updateUI();
   } catch(e) {
-    console.error('processTurn error:', e);
-    notify(lang==='fr'?'Erreur lors du traitement du tour.':'Error processing turn.', true);
+    console.warn('syncTurnFromServer: erreur de rechargement', e);
   } finally {
-    _processingTurn = false;
+    _syncingTurn = false;
   }
 }
 
@@ -3149,7 +3027,7 @@ function updateCountdown() {
   const remaining = Math.max(0, G.nextTurnTime - Date.now());
   if (remaining === 0) {
     document.getElementById('countdown').textContent = '00:00:00';
-    if (!_processingTurn) processTurn(); // évite les appels répétés par le setInterval
+    if (!_syncingTurn) syncTurnFromServer(); // recharge G depuis Firestore (tick géré par la CF)
     return;
   }
   const h = Math.floor(remaining/3600000);
