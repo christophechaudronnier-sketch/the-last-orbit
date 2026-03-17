@@ -986,12 +986,20 @@ let _syncingTurn = false;
 async function syncTurnFromServer() {
   if (_syncingTurn) return;
   _syncingTurn = true;
+  // On bloque le countdown immediatement pour eviter les appels repetes
+  if (G && G.nextTurnTime <= Date.now()) {
+    G.nextTurnTime = nextMidnight();
+  }
   try {
+    const prevTurn = G ? (G.turn || 1) : 0;
     const freshDoc = await getDoc(doc(db, 'players', currentUser.uid));
     if (freshDoc.exists()) {
       Object.assign(G, freshDoc.data());
       updateUI();
-      notify(t('turnStarted'));
+      // N afficher la notification que si le tour a reellement avance
+      if ((G.turn || 1) > prevTurn) {
+        notify(t('turnStarted'));
+      }
     }
   } catch(e) {
     console.warn('syncTurnFromServer: erreur de rechargement', e);
