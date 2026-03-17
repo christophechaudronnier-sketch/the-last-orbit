@@ -1365,6 +1365,17 @@ function calcTravelTurns(col1, row1, col2, row2, propulsionLevel) {
   return Math.max(1, Math.round(Math.sqrt(dist) * 1.4 / speedBonus));
 }
 
+// Calcule le temps de trajet d un colonisateur : toujours entre 2 et 5 tours.
+// Les colonisateurs sont plus lents que les vaisseaux de combat.
+// La recherche Combustion reduit d 1 tour si niveau 2+.
+function calcColonizeTurns(col1, row1, col2, row2, combustionLevel) {
+  const dist = hexDistance(col1, row1, col2, row2);
+  const MAX_DIST = 12; // distance max sur grille 9x9
+  const base = Math.min(5, Math.max(2, Math.round(2 + (dist / MAX_DIST) * 3)));
+  const bonus = combustionLevel >= 2 ? 1 : 0; // -1 tour si combustion nv.2+
+  return Math.max(2, base - bonus);
+}
+
 window._openAttackModal = async (targetUid, targetName, targetPlanet, targetCol, targetRow) => {
   if (!G) return;
 
@@ -3638,7 +3649,7 @@ window._confirmColonize = async () => {
     do { col = Math.floor(Math.random()*9); row = Math.floor(Math.random()*9); tries++; }
     while (usedCoords.includes(`${col},${row}`) && tries < 50);
   }
-  const colTurns = calcTravelTurns(G.planets[0].hexCol??0, G.planets[0].hexRow??0, col??0, row??0, G.research.combustion||0);
+  const colTurns = calcColonizeTurns(G.planets[0].hexCol??0, G.planets[0].hexRow??0, col??0, row??0, G.research.combustion||0);
   G.pendingColonization = { ...window._colonizeTarget, hexCol: col, hexRow: row, arrivalTurn: G.turn + colTurns };
   addLog(`🚀 ${lang==='fr'?'Colonisateur envoyé vers':'Colonizer sent to'} ${window._colonizeTarget.planetName}`, 'info');
   await saveGame();
