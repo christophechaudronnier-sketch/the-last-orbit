@@ -1096,339 +1096,7 @@ async function initAIPlayers() {
   }
 }
 
-// Calcule la production pour une IA (même logique que getProduction mais sans G)
-function getAIProduction(ai) {
-  // Production de base plus généreuse pour compenser le fait que l'IA
-  // ne joue pas manuellement son premier tour comme un humain
-  const prod = { metal:500, crystal:250, energy:200 };
-  (ai.planets||[]).forEach(planet => {
-    BUILDINGS.forEach(b => {
-      const lv = (planet.buildings||{})[b.id]||0;
-      if (!lv || !b.production) return;
-      prod[b.production] += b.prodBase * lv;
-    });
-  });
-  return prod;
-}
-
-// Vérifie si l'IA peut se payer un coût
-function aiCanAfford(ai, cost) {
-  return ai.resources.metal >= (cost.metal||0)
-      && ai.resources.crystal >= (cost.crystal||0)
-      && ai.resources.energy >= (cost.energy||0);
-}
-
-// Vérifie les prérequis pour une IA
-function aiMeetsReqs(ai, requires) {
-  if (!requires) return true;
-  const planet = ai.planets[0];
-  for (const [k,v] of Object.entries(requires)) {
-    const actual = (planet.buildings||{})[k] !== undefined
-      ? (planet.buildings||{})[k]
-      : (ai.research||{})[k] !== undefined
-        ? (ai.research||{})[k] : 0;
-    if (actual < v) return false;
-  }
-  return true;
-}
-
-// Calcule le score d'une IA
-function computeAIScore(ai) {
-  // Même barème que les joueurs humains
-  return computeScore(ai);
-}
-
-// Décision IA : que construire ce tour ?
-function aiDecide(ai) {
-  const p = ai.personality;
-  const planet = ai.planets[0];
-  const blds = planet.buildings||{};
-  const res = ai.research||{};
-  const fleet = planet.fleet||{};
-  const actions = []; // liste de ce qu'on va faire
-
-  // Priorités selon la personnalité
-  // 1. Toujours avoir au moins une mine de métal et une centrale
-  if ((blds.mine_metal||0) < 2) {
-    const b = BUILDINGS.find(x=>x.id==='mine_metal');
-    const cost = getBuildingCostAI(b, blds.mine_metal||0);
-    if (aiCanAfford(ai, cost)) { actions.push({ type:'building', b, cost }); }
-  }
-  if ((blds.power_plant||0) < 2) {
-    const b = BUILDINGS.find(x=>x.id==='power_plant');
-    const cost = getBuildingCostAI(b, blds.power_plant||0);
-    if (aiCanAfford(ai, cost)) { actions.push({ type:'building', b, cost }); }
-  }
-
-  if (p === 'builder' || p === 'expansionist') {
-    // Priorité mines
-    ['mine_metal','mine_crystal','power_plant'].forEach(id => {
-      const b = BUILDINGS.find(x=>x.id===id);
-      const lv = blds[id]||0;
-      if (lv < 8) {
-        const cost = getBuildingCostAI(b, lv);
-        if (aiCanAfford(ai, cost)) actions.push({ type:'building', b, cost });
-      }
-    });
-    // Chantier naval pour colonisateur
-    if (p === 'expansionist' && (blds.shipyard||0) < 2) {
-      const b = BUILDINGS.find(x=>x.id==='shipyard');
-      const cost = getBuildingCostAI(b, blds.shipyard||0);
-      if (aiCanAfford(ai, cost)) actions.push({ type:'building', b, cost });
-    }
-  }
-
-  if (p === 'researcher') {
-    // Priorité labo puis recherches
-    if ((blds.research_lab||0) < 4) {
-      const b = BUILDINGS.find(x=>x.id==='research_lab');
-      const cost = getBuildingCostAI(b, blds.research_lab||0);
-      if (aiCanAfford(ai, cost)) actions.push({ type:'building', b, cost });
-    }
-    RESEARCH.forEach(r => {
-      const lv = res[r.id]||0;
-      const maxLv = r.maxLevel||5;
-      if (lv < maxLv && aiMeetsReqs(ai, r.requires)) {
-        const cost = getResearchCostAI(ai, r);
-        if (aiCanAfford(ai, cost)) actions.push({ type:'research', r, cost });
-      }
-    });
-  }
-
-  if (p === 'conqueror' || p === 'researcher') {
-    // Chantier naval + flotte
-    if ((blds.shipyard||0) < 3) {
-      const b = BUILDINGS.find(x=>x.id==='shipyard');
-      const cost = getBuildingCostAI(b, blds.shipyard||0);
-      if (aiCanAfford(ai, cost)) actions.push({ type:'building', b, cost });
-    }
-    // Construire des chasseurs
-    const shipCost = { metal:200, crystal:60, energy:0 };
-    if ((blds.shipyard||0) >= 1 && aiCanAfford(ai, shipCost)) {
-      actions.push({ type:'ship', id:'fighter', name:'Chasseur', cost: shipCost, qty:1 });
-    }
-    // Croiseurs si possible
-    if ((blds.shipyard||0) >= 2 && (res.combustion||0) >= 1) {
-      const cruiserCost = { metal:1000, crystal:400, energy:100 };
-      if (aiCanAfford(ai, cruiserCost)) {
-        actions.push({ type:'ship', id:'cruiser', name:'Croiseur', cost: cruiserCost, qty:1 });
-      }
-    }
-  }
-
-  // Recherche de colonisation pour l'expansionniste
-  if (p === 'expansionist') {
-    const r = RESEARCH.find(x=>x.id==='colonization');
-    const lv = res.colonization||0;
-    if (lv < 2 && aiMeetsReqs(ai, r.requires)) {
-      const cost = getResearchCostAI(ai, r);
-      if (aiCanAfford(ai, cost)) actions.push({ type:'research', r, cost });
-    }
-    // Construire colonisateur
-    if ((blds.shipyard||0) >= 2 && (fleet.colonizer||0) === 0) {
-      const colCost = { metal:600, crystal:1000, energy:50 };
-      if (aiCanAfford(ai, colCost)) {
-        actions.push({ type:'ship', id:'colonizer', name:'Colonisateur', cost: colCost, qty:1 });
-      }
-    }
-  }
-
-  // Toujours investir mines de base (toutes IA)
-  ['mine_metal','mine_crystal'].forEach(id => {
-    const b = BUILDINGS.find(x=>x.id===id);
-    const lv = blds[id]||0;
-    if (lv < 5) {
-      const cost = getBuildingCostAI(b, lv);
-      if (aiCanAfford(ai, cost) && !actions.find(a=>a.b?.id===id)) {
-        actions.push({ type:'building', b, cost });
-      }
-    }
-  });
-
-  return actions.slice(0, 2); // max 2 actions par tour — cohérent avec les humains, évite l'épuisement de ressources
-}
-
-function getBuildingCostAI(b, lv) {
-  return {
-    metal:   Math.floor(b.costBase.metal   * Math.pow(1.5, lv)),
-    crystal: Math.floor(b.costBase.crystal * Math.pow(1.5, lv)),
-    energy:  Math.floor(b.costBase.energy  * Math.pow(1.5, lv)),
-  };
-}
-
-function getResearchCostAI(ai, r) {
-  const lv = (ai.research||{})[r.id]||0;
-  return {
-    metal:   Math.floor(r.costBase.metal   * Math.pow(2, lv)),
-    crystal: Math.floor(r.costBase.crystal * Math.pow(2, lv)),
-    energy:  Math.floor(r.costBase.energy  * Math.pow(2, lv)),
-  };
-}
-
-// Traite le tour de toutes les IA
-async function processAITurns() {
-  const now = Date.now();
-  for (const profile of AI_PROFILES) {
-    try {
-      const ref = doc(db, 'players', profile.id);
-      const snap = await getDoc(ref);
-      if (!snap.exists()) continue;
-      const ai = snap.data();
-
-      // Vérifier si l'IA doit jouer ce tour (transaction pour éviter double traitement)
-      if (now < (ai.nextTurnTime||0)) continue;
-      // Verrouiller via transaction avant de traiter
-      let aiLocked = false;
-      try {
-        await runTransaction(db, async (transaction) => {
-          const freshAI = await transaction.get(ref);
-          if (!freshAI.exists()) return;
-          if (Date.now() < (freshAI.data().nextTurnTime||0)) return; // déjà traité
-          transaction.update(ref, { nextTurnTime: nextMidnight() }); // verrouille immédiatement
-          aiLocked = true;
-        });
-      } catch(lockErr) {
-        console.warn('Lock IA échoué, on passe :', profile.id, lockErr);
-        continue;
-      }
-      if (!aiLocked) continue;
-
-      // 1. Production
-      const prod = getAIProduction(ai);
-      ai.resources.metal   += prod.metal;
-      ai.resources.crystal += prod.crystal;
-      ai.resources.energy  += prod.energy;
-
-      // 2. Appliquer la file de construction (si elle existe)
-      (ai.planets||[]).forEach(planet => {
-        (planet.buildQueue||[]).forEach(item => {
-          if (item.type === 'building') {
-            planet.buildings[item.id] = (planet.buildings[item.id]||0) + 1;
-          } else if (item.type === 'research') {
-            ai.research[item.id] = (ai.research[item.id]||0) + 1;
-          } else if (item.type === 'ship') {
-            planet.fleet[item.id] = (planet.fleet[item.id]||0) + (item.qty||1);
-          }
-        });
-        planet.buildQueue = [];
-      });
-
-      // 3. Colonisation en cours
-      if (ai.pendingColonization) {
-        const pc = ai.pendingColonization;
-        const maxP = 1 + (ai.research?.colonization||0);
-        if (ai.planets.length < maxP) {
-          const usedCoords = ai.planets.map(p=>`${p.hexCol},${p.hexRow}`);
-          let col = pc.hexCol, row = pc.hexRow;
-          if (!col || usedCoords.includes(`${col},${row}`)) {
-            let tries=0;
-            do { col=Math.floor(Math.random()*9); row=Math.floor(Math.random()*9); tries++; }
-            while (usedCoords.includes(`${col},${row}`) && tries<50);
-          }
-          ai.planets.push({
-            ...makePlanet(pc.planetName, pc.emoji||null, pc.sector, false),
-            hexCol: col, hexRow: row,
-          });
-        }
-        ai.pendingColonization = null;
-      }
-
-      // 4. Décisions IA pour ce tour
-      const actions = aiDecide(ai);
-      const planet = ai.planets[0];
-      for (const action of actions) {
-        if (action.type === 'building') {
-          // Dépenser et mettre en file
-          ai.resources.metal   -= (action.cost.metal||0);
-          ai.resources.crystal -= (action.cost.crystal||0);
-          ai.resources.energy  -= (action.cost.energy||0);
-          planet.buildQueue.push({ type:'building', id:action.b.id, name:getBName(action.b) });
-        } else if (action.type === 'research') {
-          ai.resources.metal   -= (action.cost.metal||0);
-          ai.resources.crystal -= (action.cost.crystal||0);
-          ai.resources.energy  -= (action.cost.energy||0);
-          planet.buildQueue.push({ type:'research', id:action.r.id, name:getRName(action.r) });
-        } else if (action.type === 'ship') {
-          ai.resources.metal   -= (action.cost.metal||0);
-          ai.resources.crystal -= (action.cost.crystal||0);
-          ai.resources.energy  -= (action.cost.energy||0);
-          planet.buildQueue.push({ type:'ship', id:action.id, name:action.name, qty:action.qty||1 });
-        }
-      }
-
-      // 5. Colonisation — l'expansionniste envoie un colonisateur si disponible
-      if (ai.personality === 'expansionist' && !ai.pendingColonization) {
-        const maxP = 1 + (ai.research?.colonization||0);
-        if (ai.planets.length < maxP && (planet.fleet.colonizer||0) > 0) {
-          planet.fleet.colonizer--;
-          const names = ['Nova Kepler','Drift Station','Sigma Outpost','Vega II','Tau Colony','Rigel Base'];
-          const emojis = ['🪐','🌑','🟤','🔵','🔴','🌕'];
-          ai.pendingColonization = {
-            planetName: names[Math.floor(Math.random()*names.length)],
-            emoji: emojis[Math.floor(Math.random()*emojis.length)],
-            sector: Math.floor(Math.random()*9)+1,
-            hexCol: null, hexRow: null,
-          };
-        }
-      }
-
-      // 6. Combat — attaque un joueur humain si l'IA est assez forte (style agressif/mixte)
-      if (ai.personality === 'conqueror' || ai.personality === 'expansionist') {
-        const wB = 1 + (ai.research?.weapons||0)*0.25;
-        const totalAtt = (planet.fleet.fighter||0)*50*wB
-                       + (planet.fleet.cruiser||0)*200*wB
-                       + (planet.fleet.battleship||0)*1000*wB;
-        // Attaque seulement si flotte significative
-        if (totalAtt >= 500 && Math.random() < 0.4) {
-          try {
-            // Récupère les joueurs humains
-            const playersSnap = await getDocs(collection(db, 'players'));
-            const humans = [];
-            playersSnap.forEach(d => {
-              const data = d.data();
-              if (!data.isAI) humans.push({ ...data, uid: d.id });
-            });
-            if (humans.length > 0) {
-              const target = humans[Math.floor(Math.random()*humans.length)];
-              const defPow = calcPlayerDefensePower(target);
-              if (totalAtt * (0.8 + Math.random()*0.4) > defPow * (0.8 + Math.random()*0.4)) {
-                // Victoire IA
-                const loot = {
-                  metal:   Math.floor((target.resources?.metal||0)*0.15),
-                  crystal: Math.floor((target.resources?.crystal||0)*0.15),
-                };
-                ai.resources.metal   += loot.metal;
-                ai.resources.crystal += loot.crystal;
-                ai.combatWins = (ai.combatWins||0)+1;
-                // Notifier la cible dans son Firestore
-                const targetRef = doc(db, 'players', target.uid);
-                const targetSnap = await getDoc(targetRef);
-                if (targetSnap.exists()) {
-                  const tData = targetSnap.data();
-                  tData.resources.metal   = Math.max(0, (tData.resources.metal||0)   - loot.metal);
-                  tData.resources.crystal = Math.max(0, (tData.resources.crystal||0) - loot.crystal);
-                  if (!tData.log) tData.log = [];
-                  tData.log.unshift({ msg:`🔴 ATTAQUE IA — ${ai.commanderName} vous a attaqué ! −${loot.metal}🪨 −${loot.crystal}💎`, type:'defeat', turn: tData.turn||1 });
-                  if (tData.log.length > 50) tData.log = tData.log.slice(0,50);
-                  tData.score = 0; // sera recalculé au prochain tour du joueur
-                  await setDoc(targetRef, tData);
-                }
-              }
-            }
-          } catch(e) { console.error('AI combat error:', e); }
-        }
-      }
-
-      // 7. Mise à jour tour et score
-      ai.turn = (ai.turn||1) + 1;
-      ai.nextTurnTime = nextMidnight();
-      ai.lastSeen = Date.now();
-      ai.score = computeAIScore(ai);
-
-      await setDoc(ref, ai);
-    } catch(e) { console.error('processAITurns error:', profile.id, e); }
-  }
-}
+// processAITurns et helpers IA supprimés — gérés exclusivement par la Cloud Function.
 
 function processMissionResult(m) {
   if (m.type === 'explore') {
@@ -1471,97 +1139,35 @@ function addLog(msg, type) {
 }
 
 // ========== COMBAT SYSTEM ==========
+// resolveCombat et processIncomingAttacks sont gérés par la Cloud Function (dailyTurn).
+// calcFleetPower et calcPlayerDefensePower sont conservées ici UNIQUEMENT pour
+// la prévisualisation de puissance dans l'UI (affichage uniquement, pas de résolution).
 
-// Calcule la puissance d'une flotte donnée (objet {fighter, cruiser, battleship, colonizer})
 function calcFleetPower(fleet, researchWeapons, researchShields) {
   const wB = 1 + (researchWeapons||0) * 0.25;
   const sB = 1 + (researchShields||0) * 0.25;
   let att = 0, def = 0;
-  att += (fleet.fighter||0)    * 50  * wB;
-  att += (fleet.cruiser||0)    * 200 * wB;
+  att += (fleet.fighter||0)    * 50   * wB;
+  att += (fleet.cruiser||0)    * 200  * wB;
   att += (fleet.battleship||0) * 1000 * wB;
-  def += (fleet.fighter||0)    * 20  * sB;
-  def += (fleet.cruiser||0)    * 100 * sB;
-  def += (fleet.battleship||0) * 500 * sB;
+  def += (fleet.fighter||0)    * 20   * sB;
+  def += (fleet.cruiser||0)    * 100  * sB;
+  def += (fleet.battleship||0) * 500  * sB;
   return { att: Math.floor(att), def: Math.floor(def) };
 }
 
-// Calcule la puissance défensive totale d'un joueur (flotte + défenses planétaires)
 function calcPlayerDefensePower(playerData) {
   const sB = 1 + (playerData.research?.shields||0) * 0.25;
   let def = 0;
-  const planets = playerData.planets || [];
-  if (planets.length > 0) {
-    // Nouveau format multi-planètes
-    planets.forEach(planet => {
-      const fleet = planet.fleet||{};
-      const defense = planet.defense||{};
-      def += (fleet.fighter||0)    * 20  * sB;
-      def += (fleet.cruiser||0)    * 100 * sB;
-      def += (fleet.battleship||0) * 500 * sB;
-      DEFENSES.forEach(d => {
-        def += (defense[d.id]||0) * d.def * sB;  // boucliers appliqués aux défenses planétaires
-      });
-    });
-  } else {
-    // Ancien format (compatibilité rétro)
-    const fleet = playerData.fleet || {};
+  (playerData.planets || []).forEach(planet => {
+    const fleet = planet.fleet||{};
+    const defense = planet.defense||{};
     def += (fleet.fighter||0)    * 20  * sB;
     def += (fleet.cruiser||0)    * 100 * sB;
     def += (fleet.battleship||0) * 500 * sB;
-    DEFENSES.forEach(d => {
-      def += (playerData.defense?.[d.id]||0) * d.def * sB;  // boucliers appliqués aux défenses planétaires
-    });
-  }
+    DEFENSES.forEach(d => { def += (defense[d.id]||0) * d.def * sB; });
+  });
   return Math.floor(def);
-}
-
-// Résout un combat : retourne le rapport complet
-function resolveCombat(attackerFleet, attackerResearch, defenderData) {
-  const atkPower = calcFleetPower(attackerFleet, attackerResearch?.weapons||0, attackerResearch?.shields||0);
-  const defPower = calcPlayerDefensePower(defenderData);
-
-  // Ajout d'un facteur aléatoire ±20%
-  const atkRoll = atkPower.att * (0.8 + Math.random() * 0.4);
-  const defRoll = defPower * (0.8 + Math.random() * 0.4);
-
-  const victory = atkRoll > defRoll;
-  const ratio = victory ? atkRoll / Math.max(defRoll, 1) : defRoll / Math.max(atkRoll, 1);
-
-  // Pertes proportionnelles à l'écart de force
-  const atkLossRate = victory
-    ? Math.max(0.05, Math.min(0.4, 0.4 / ratio))
-    : Math.max(0.4, Math.min(0.9, 0.9 / ratio));
-  const defLossRate = victory
-    ? Math.max(0.3, Math.min(0.8, 0.3 * ratio))
-    : Math.max(0.05, Math.min(0.3, 0.05 * ratio));
-
-  const atkLosses = {};
-  for (const [type, qty] of Object.entries(attackerFleet)) {
-    atkLosses[type] = Math.floor(qty * atkLossRate);
-  }
-  const defLosses = {};
-  const defFleet = defenderData.fleet || {};
-  for (const [type, qty] of Object.entries(defFleet)) {
-    defLosses[type] = Math.floor(qty * defLossRate);
-  }
-  // Si victoire : toutes les défenses planétaires détruites
-  const defLosesDefenses = {};
-  if (victory) {
-    const mainDef = (defenderData.planets && defenderData.planets[0]) ? defenderData.planets[0].defense : defenderData.defense;
-    if (mainDef) {
-      DEFENSES.forEach(d => { if ((mainDef[d.id]||0) > 0) defLosesDefenses[d.id] = mainDef[d.id]; });
-    }
-  }
-
-  // Butin : 20% des stocks si victoire
-  const loot = { metal: 0, crystal: 0 };
-  if (victory) {
-    loot.metal   = Math.floor((defenderData.resources?.metal||0)  * 0.20);
-    loot.crystal = Math.floor((defenderData.resources?.crystal||0) * 0.20);
-  }
-
-  return { victory, atkPower: Math.floor(atkRoll), defPower: Math.floor(defRoll), atkLosses, defLosses, defLosesDefenses, loot };
 }
 
 // Affiche la modale de rapport de combat
@@ -1616,101 +1222,6 @@ function showCombatReport(report, isAttacker, opponentName, opponentPlanet) {
   modal.style.display = 'flex';
 }
 
-// Traite toutes les attaques au passage de tour
-async function processIncomingAttacks() {
-  if (!currentUser) return;
-  try {
-    // Attaques REÇUES par ce joueur
-    const snap = await getDocs(query(collection(db, 'attacks'),
-      where('targetUid', '==', currentUser.uid),
-      where('status', '==', 'pending')
-    ));
-    for (const attackSnap of snap.docs) {
-      const atk = attackSnap.data();
-      // Ne résoudre que si l'attaque est arrivée (arrivalTurn atteint)
-      if (atk.arrivalTurn && G.turn < atk.arrivalTurn) continue;
-
-      // Transaction : vérifie que l'attaque est encore 'pending' avant de résoudre
-      // Évite la double résolution si deux clients tournent en même temps (race condition)
-      let report = null;
-      try {
-        await runTransaction(db, async (transaction) => {
-          const freshSnap = await transaction.get(doc(db, 'attacks', attackSnap.id));
-          if (!freshSnap.exists() || freshSnap.data().status !== 'pending') return;
-          report = resolveCombat(atk.fleet, atk.attackerResearch, G);
-          transaction.update(doc(db, 'attacks', attackSnap.id), {
-            status: 'resolved',
-            result: { victory: report.victory, atkPower: report.atkPower, defPower: report.defPower, atkLosses: report.atkLosses, defLosses: report.defLosses, loot: report.loot }
-          });
-        });
-      } catch(txErr) {
-        console.warn('Transaction combat échouée, on passe :', txErr);
-        continue;
-      }
-
-      // Si report est null, la transaction a détecté que c'était déjà résolu → on ignore
-      if (!report) continue;
-
-      // Applique les conséquences sur le défenseur (planète principale)
-      const mainPlanet = G.planets[0];
-      for (const [type, lost] of Object.entries(report.defLosses)) {
-        if (mainPlanet.fleet[type] !== undefined) mainPlanet.fleet[type] = Math.max(0, mainPlanet.fleet[type] - lost);
-      }
-      if (report.defLosesDefenses) {
-        for (const [type, lost] of Object.entries(report.defLosesDefenses)) {
-          if (!mainPlanet.defense) mainPlanet.defense = {};
-          mainPlanet.defense[type] = Math.max(0, (mainPlanet.defense[type]||0) - lost);
-        }
-      }
-      if (report.victory) {
-        G.resources.metal   = Math.max(0, G.resources.metal   - report.loot.metal);
-        G.resources.crystal = Math.max(0, G.resources.crystal - report.loot.crystal);
-      }
-
-      const fmtLocal = (n) => n >= 1000 ? (n/1000).toFixed(1)+'k' : String(n);
-      const outcomeLabel = report.victory ? (lang==='fr'?'🔴 DÉFAITE':'🔴 DEFEAT') : (lang==='fr'?'🟢 REPOUSSÉ':'🟢 REPELLED');
-      const lootMsg = report.victory ? ` — −${fmtLocal(report.loot.metal)}🪨 −${fmtLocal(report.loot.crystal)}💎` : '';
-      const defLossMsg = [...Object.entries(report.defLosses), ...Object.entries(report.defLosesDefenses||{})].filter(([,v])=>v>0).map(([k,v])=>`-${v} ${k}`).join(' ');
-      addLog(`${outcomeLabel} — ${atk.attackerName} (${atk.attackerPlanet}) ⚔️${fmtLocal(report.atkPower)} vs 🛡️${fmtLocal(report.defPower)}${lootMsg}${defLossMsg?' | pertes: '+defLossMsg:''}`, report.victory ? 'defeat' : 'victory');
-
-      showCombatReport(report, false, atk.attackerName, atk.attackerPlanet);
-    }
-
-        // Attaques ENVOYÉES — récupère les résultats
-    const sentSnap = await getDocs(query(collection(db, 'attacks'),
-      where('attackerUid', '==', currentUser.uid),
-      where('status', '==', 'resolved')
-    ));
-    for (const attackSnap of sentSnap.docs) {
-      const atk = attackSnap.data();
-      const r = atk.result;
-      const fmtLocal = (n) => n >= 1000 ? (n/1000).toFixed(1)+'k' : String(n);
-
-      // Remettre les survivants dans la flotte (vaisseaux envoyés - pertes)
-      const mp = G.planets[0];
-      for (const [type, sent] of Object.entries(atk.fleet||{})) {
-        const lost = (r.atkLosses||{})[type] || 0;
-        const survivors = Math.max(0, sent - lost);
-        if (mp.fleet[type] !== undefined) mp.fleet[type] = (mp.fleet[type]||0) + survivors;
-      }
-      if (r.victory) {
-        G.resources.metal   += r.loot?.metal  || 0;
-        G.resources.crystal += r.loot?.crystal || 0;
-        G.combatWins = (G.combatWins||0) + 1;
-      }
-
-      const outcomeLabel = r.victory ? (lang==='fr'?'🟢 VICTOIRE':'🟢 VICTORY') : (lang==='fr'?'🔴 DÉFAITE':'🔴 DEFEAT');
-      const lootMsg = r.victory ? ` — +${fmtLocal(r.loot?.metal||0)}🪨 +${fmtLocal(r.loot?.crystal||0)}💎` : '';
-      const atkLossMsg = Object.entries(r.atkLosses||{}).filter(([,v])=>v>0).map(([k,v])=>`-${v} ${k}`).join(' ');
-      addLog(`${outcomeLabel} vs ${atk.targetName} (${atk.targetPlanet}) ⚔️${fmtLocal(r.atkPower)} vs 🛡️${fmtLocal(r.defPower)}${lootMsg}${atkLossMsg?' | pertes: '+atkLossMsg:''}`, r.victory ? 'victory' : 'defeat');
-
-      // Afficher le rapport de combat pour l'attaquant
-      showCombatReport(r, true, atk.targetName, atk.targetPlanet);
-
-      await deleteDoc(doc(db, 'attacks', attackSnap.id));
-    }
-  } catch(e) { console.error('Combat processing error:', e); }
-}
 
 // ── Mouvements de flotte entre planètes du joueur ──────────────────────────
 
@@ -4103,22 +3614,6 @@ function generateEmptyPlanets(occupiedSectors) {
     isEmpty: true,
   }));
 }
-
-window._openColonizeModal = (planetName, sector, emoji) => {
-  if (!G) return;
-  if (G.planets.length >= maxPlanets()) { notify(t('colonizeMax'), true); return; }
-  if (G.pendingColonization) { notify(t('colonizeAlready'), true); return; }
-  // Vérifie si on a un colonisateur dispo sur n'importe quelle planète
-  const hasColonizer = G.planets.some(p => (p.fleet||{}).colonizer > 0);
-  if (!hasColonizer) { notify(t('colonizeNoShip'), true); return; }
-
-  window._colonizeTarget = { planetName, sector, emoji };
-
-  const modal = document.getElementById('colonize-modal');
-  document.getElementById('colonize-modal-title').textContent = `${emoji} ${planetName}`;
-  document.getElementById('colonize-modal-sector').textContent = `${lang==='fr'?'Secteur':'Sector'} ${sector}`;
-  modal.style.display = 'flex';
-};
 
 window._closeColonizeModal = () => {
   document.getElementById('colonize-modal').style.display = 'none';
