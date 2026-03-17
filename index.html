@@ -610,8 +610,7 @@ async function loadGame() {
       // Migration : ajouter score et combatWins si absents (anciens comptes)
       if (G.score === undefined) G.score = 0;
       if (G.combatWins === undefined) G.combatWins = 0;
-      // Recalculer le score à chaque chargement pour prendre en compte le nouveau barème
-      G.score = computeScore();
+      // Score mis à jour uniquement par le tick de minuit (Cloud Function)
       activePlanetIndex = 0;
       return true;
     }
@@ -1106,7 +1105,7 @@ async function processTurn() {
     // Avancer nextTurnTime jusqu'au prochain minuit futur
     G.nextTurnTime = nextMidnight();
     G.lastSeen = Date.now();
-    G.score = computeScore();
+    // Score mis à jour uniquement par le tick de minuit (Cloud Function)
     await saveGame();
 
     if (missedTurns > 1) {
@@ -3953,7 +3952,7 @@ async function renderRanking() {
       uid: p.uid,
       commanderName: p.commanderName || '???',
       // Recalcule le score à la volée pour avoir une valeur toujours à jour
-      score: computeScore(p),
+      score: p.score || 0,
       planets: p.planets || [],
       research: p.research || {},
       combatWins: p.combatWins || 0,
