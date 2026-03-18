@@ -983,23 +983,26 @@ function nextMidnightAfter(ts) {
 // Le tick de tour est géré exclusivement par la Cloud Function (minuit serveur).
 // Le client se contente de recharger G depuis Firestore quand le compteur tombe à zéro.
 let _syncingTurn = false;
+let _lastSyncedTurn = 0; // evite de notifier au chargement initial
 async function syncTurnFromServer() {
   if (_syncingTurn) return;
   _syncingTurn = true;
-  // On bloque le countdown immediatement pour eviter les appels repetes
-  if (G && G.nextTurnTime <= Date.now()) {
-    G.nextTurnTime = nextMidnight();
-  }
   try {
     const prevTurn = G ? (G.turn || 1) : 0;
     const freshDoc = await getDoc(doc(db, 'players', currentUser.uid));
     if (freshDoc.exists()) {
       Object.assign(G, freshDoc.data());
+      // Si nextTurnTime est toujours dans le passe (CF pas encore passee),
+      // on le force au prochain minuit pour que le countdown reparte
+      if (G.nextTurnTime <= Date.now()) {
+        G.nextTurnTime = nextMidnight();
+      }
       updateUI();
-      // N afficher la notification que si le tour a reellement avance
-      if ((G.turn || 1) > prevTurn) {
+      // Notifier seulement si le tour a vraiment avance ET que ce n est pas le premier chargement
+      if ((G.turn || 1) > prevTurn && _lastSyncedTurn > 0) {
         notify(t('turnStarted'));
       }
+      _lastSyncedTurn = G.turn || 1;
     }
   } catch(e) {
     console.warn('syncTurnFromServer: erreur de rechargement', e);
