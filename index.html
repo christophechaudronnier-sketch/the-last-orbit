@@ -612,6 +612,9 @@ async function loadGame() {
       if (G.combatWins === undefined) G.combatWins = 0;
       // Score mis à jour uniquement par le tick de minuit (Cloud Function)
       activePlanetIndex = 0;
+      // Mettre à jour la dernière connexion
+      G.lastSeen = Date.now();
+      await saveGame();
       return true;
     }
     return false;
