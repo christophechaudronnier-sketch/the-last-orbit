@@ -1001,6 +1001,8 @@ async function syncTurnFromServer() {
       // Notifier seulement si le tour a vraiment avance ET que ce n est pas le premier chargement
       if ((G.turn || 1) > prevTurn && _lastSyncedTurn > 0) {
         notify(t('turnStarted'));
+        addLog(`✅ ${t('turnStarted')}`, 'info');
+        await saveGame();
       }
       _lastSyncedTurn = G.turn || 1;
     }
