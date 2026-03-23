@@ -1016,6 +1016,61 @@ async function syncTurnFromServer() {
       }
       _lastSyncedTurn = G.turn || 1;
     }
+
+    // ── Traiter les combats résolus par la Cloud Function ──────────────────
+    try {
+      const resolvedSnap = await getDocs(query(
+        collection(db, 'attacks'),
+        where('attackerUid', '==', currentUser.uid),
+        where('status', '==', 'resolved')
+      ));
+      let combatChanged = false;
+      for (const atkDoc of resolvedSnap.docs) {
+        const atk = atkDoc.data();
+        const res = atk.result;
+        if (!res) continue;
+
+        // Retrouver la planète source pour recréditer les survivants
+        const sourcePlanet = (G.planets || []).find(p => p.name === atk.attackerPlanet)
+                          || G.planets?.[0];
+
+        if (sourcePlanet) {
+          // Survivants = vaisseaux envoyés - pertes
+          const sent   = atk.fleet      || {};
+          const losses = res.atkLosses  || {};
+          for (const shipType of Object.keys(sent)) {
+            const survived = Math.max(0, (sent[shipType] || 0) - (losses[shipType] || 0));
+            if (survived > 0) {
+              sourcePlanet.fleet = sourcePlanet.fleet || {};
+              sourcePlanet.fleet[shipType] = (sourcePlanet.fleet[shipType] || 0) + survived;
+            }
+          }
+        }
+
+        // Afficher le rapport de combat complet + écrire dans le journal
+        showCombatReport(res, true, atk.targetName, atk.targetPlanet);
+        if (res.victory) {
+          const lootMetal   = res.loot?.metal   || 0;
+          const lootCrystal = res.loot?.crystal || 0;
+          G.combatWins = (G.combatWins || 0) + 1;
+          addLog(`⚔️ ${lang==='fr'?'Victoire contre':'Victory against'} ${atk.targetName} — +${lootMetal}🪨 +${lootCrystal}💎`, 'victory');
+        } else {
+          addLog(`⚔️ ${lang==='fr'?'Défaite contre':'Defeat against'} ${atk.targetName}`, 'defeat');
+        }
+
+        // Marquer le doc comme traité pour ne pas le retraiter
+        await updateDoc(doc(db, 'attacks', atkDoc.id), { status: 'seen' });
+        combatChanged = true;
+      }
+      if (combatChanged) {
+        await saveGame();
+        updateUI();
+      }
+    } catch(combatErr) {
+      console.warn('syncTurnFromServer: erreur traitement combats', combatErr);
+    }
+    // ── Fin traitement combats ─────────────────────────────────────────────
+
   } catch(e) {
     console.warn('syncTurnFromServer: erreur de rechargement', e);
   } finally {
