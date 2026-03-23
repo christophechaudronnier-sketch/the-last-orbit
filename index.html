@@ -614,6 +614,13 @@ async function loadGame() {
       activePlanetIndex = 0;
       // Mettre à jour la dernière connexion
       G.lastSeen = Date.now();
+      // Écrire dans le journal si le tour a avancé depuis la dernière visite
+      const lastVisitTurn = parseInt(localStorage.getItem('tlo_lastVisitTurn') || '0');
+      const currentTurn = G.turn || 1;
+      if (currentTurn > lastVisitTurn && lastVisitTurn > 0) {
+        addLog(`✅ ${t('turnStarted')}`, 'info');
+      }
+      localStorage.setItem('tlo_lastVisitTurn', String(currentTurn));
       await saveGame();
       return true;
     }
