@@ -1392,7 +1392,7 @@ window._openMoveFleetModal = (shipId, shipName, shipIcon, maxQty) => {
     const destName = document.getElementById('move-dest').value;
     const dest = G.planets.find(p => p.name === destName);
     if (!dest) return;
-    const turns = calcTravelTurns(sourcePlanet.col, sourcePlanet.row, dest.col, dest.row, G.research['combustion'] || 0);
+    const turns = calcTravelTurns(sourcePlanet.hexCol ?? 0, sourcePlanet.hexRow ?? 0, dest.hexCol ?? 0, dest.hexRow ?? 0, G.research['combustion'] || 0);
     document.getElementById('move-travel-info').textContent = `⏱ Temps de trajet : ${turns} tour${turns > 1 ? 's' : ''}`;
   };
   document.getElementById('move-dest').addEventListener('change', updateTravelInfo);
@@ -1413,7 +1413,7 @@ window._confirmMoveFleet = async (shipId, shipName, maxQty) => {
   // Retirer de la planète source immédiatement
   sourcePlanet.fleet[shipId] = available - qty;
 
-  const turns = calcTravelTurns(sourcePlanet.col, sourcePlanet.row, dest.col, dest.row, G.research['combustion'] || 0);
+  const turns = calcTravelTurns(sourcePlanet.hexCol ?? 0, sourcePlanet.hexRow ?? 0, dest.hexCol ?? 0, dest.hexRow ?? 0, G.research['combustion'] || 0);
 
   // Enregistrer le mouvement en Firestore
   await addDoc(collection(db, 'fleet_moves'), {
@@ -2074,7 +2074,7 @@ window._sendPrivateMsg = async function() {
   const toName = document.getElementById('msg-to').selectedOptions[0]?.text || '';
   const subject = document.getElementById('msg-subject').value.trim();
   const body = document.getElementById('msg-body').value.trim();
-  if (!body) { notify('Le message ne peut pas être vide.', true); return; }
+  if (!body) { notify(t('msgEmptyBody'), true); return; }
   await addDoc(collection(db, 'messages'), {
     from: uid,
     fromName: G.commanderName || G.planets[0]?.name || uid,
@@ -2149,8 +2149,8 @@ function _profileHTML(p, isOwn) {
   const research = p.research||{};
   const combatWins = p.combatWins||0;
 
-  // Calcul rang — on utilisera computeScore si dispo
-  const score = typeof computeScore === 'function' ? computeScore(p) : (p.score||0);
+  // Score Firestore (mis à jour à chaque tick par la CF), fallback computeScore si absent
+  const score = (p.score !== undefined && p.score !== null) ? p.score : computeScore(p);
 
   const avatarSelector = isOwn ? `
     <div style="margin-top:12px">
@@ -2202,7 +2202,7 @@ async function renderMyProfile() {
   const el = document.getElementById('profile-content');
   el.innerHTML = '<div style="color:#aaa;text-align:center;padding:20px">Chargement…</div>';
   const snap = await getDoc(doc(db, 'players', currentUser.uid));
-  if (!snap.exists) { el.innerHTML = '<div style="color:#aaa">Profil introuvable.</div>'; return; }
+  if (!snap.exists()) { el.innerHTML = '<div style="color:#aaa">Profil introuvable.</div>'; return; }
   const p = { ...snap.data(), uid: currentUser.uid };
   el.innerHTML = _profileHTML(p, true);
 }
@@ -2229,7 +2229,7 @@ window._openProfileModal = async function(uid) {
   content.innerHTML = '<div style="color:#aaa;text-align:center;padding:20px">Chargement…</div>';
   modal.style.display = 'flex';
   const snap = await getDoc(doc(db, 'players', uid));
-  if (!snap.exists) { content.innerHTML = '<div style="color:#aaa">Profil introuvable.</div>'; return; }
+  if (!snap.exists()) { content.innerHTML = '<div style="color:#aaa">Profil introuvable.</div>'; return; }
   const p = { ...snap.data(), uid };
   const isOwn = uid === currentUser?.uid;
   content.innerHTML = _profileHTML(p, isOwn);
@@ -2261,7 +2261,8 @@ function _forumLoadThreads() {
   if (_forumThreadsUnsub) { _forumThreadsUnsub(); _forumThreadsUnsub = null; }
   const listEl = document.getElementById('forum-threads-list');
   listEl.innerHTML = '<div style="color:#aaa;text-align:center;padding:20px">Chargement…</div>';
-  const q = query(collection(db, 'forum_threads'), where('season', '==', G.season || 1));
+  const seasonNum = currentSeason?.number || 1;
+  const q = query(collection(db, 'forum_threads'), where('season', '==', seasonNum));
   _forumThreadsUnsub = onSnapshot(q, snap => {
     if (snap.empty) {
       listEl.innerHTML = '<div style="color:#aaa;text-align:center;padding:40px">Aucun sujet pour le moment. Soyez le premier !</div>';
@@ -2302,7 +2303,7 @@ window._forumCreateThread = async function() {
     title,
     authorUid: uid,
     authorName,
-    season: G.season || 1,
+    season: currentSeason?.number || 1,
     postCount: 1,
     createdAt: now,
     lastPostAt: now
@@ -2701,7 +2702,7 @@ function renderResearch() {
     const afford = canAfford(cost);
     const meetsR = meetsReqs(r.requires);
     const inQueue = (AP().buildQueue||[]).some(q=>q.id===r.id);
-    const maxed = lv >= 5;
+    const maxed = lv >= (r.maxLevel || 5);
     let reqText = '';
     if (r.requires && !meetsR) {
       reqText = Object.entries(r.requires).map(([k,v])=>{
@@ -2841,8 +2842,18 @@ async function renderAttackStatus(context) {
     const incoming = inSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
     const buildRow = (atk, isOut) => {
-      // Pour l'affichage : toujours 1 tour de délai (résolution au prochain tour)
-      const rem = isOut ? Math.max(0, (atk.arrivalTurn || (atk.turn + 1)) - G.turn) : 1;
+      // ETA : utilise arrivalTimestamp si disponible pour précision, sinon fallback arrivalTurn
+      let rem;
+      if (isOut) {
+        if (atk.arrivalTimestamp) {
+          const msLeft = Math.max(0, atk.arrivalTimestamp - Date.now());
+          rem = Math.ceil(msLeft / (24 * 60 * 60 * 1000));
+        } else {
+          rem = Math.max(0, (atk.arrivalTurn || (atk.turn + 1)) - G.turn);
+        }
+      } else {
+        rem = 1; // attaque entrante : résolution au prochain tick
+      }
       const fs = Object.entries(atk.fleet||{}).filter(([,v])=>v>0).map(([k,v])=>v+'x '+k).join(', ');
       const ec = isOut ? 'var(--accent3)' : 'var(--danger)';
       const etaLabel = rem === 0
@@ -4013,7 +4024,6 @@ async function renderMarket() {
           <span style="color:var(--crystal)">${RES_ICON[tr.wantRes]} ${fmt(tr.wantAmt)}</span>
           <div style="margin-left:auto;display:flex;gap:6px">
             <button onclick="window._acceptTrade('${tr.id}')" class="btn" style="padding:6px 12px;font-size:.78rem">${t('acceptOffer')}</button>
-            <button onclick="window._cancelTrade('${tr.id}')" style="background:transparent;border:1px solid var(--danger);color:var(--danger);padding:6px 10px;cursor:pointer;border-radius:2px;font-size:.75rem">${t('cancelOffer')}</button>
           </div>
         </div>`).join('');
     }
