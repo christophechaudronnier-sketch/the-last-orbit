@@ -958,8 +958,8 @@ function meetsReqs(requires) {
   return true;
 }
 function totalFleetPower() {
-  const wB = 1 + G.research['weapons'] * 0.25;
-  const sB = 1 + G.research['shields'] * 0.25;
+  const wB = 1 + (G.research?.weapons||0) * 0.25;
+  const sB = 1 + (G.research?.shields||0) * 0.25;
   let att = 0, def = 0;
   (G.planets||[]).forEach(planet => {
     const fl = planet.fleet||{};
@@ -1027,6 +1027,9 @@ async function syncTurnFromServer() {
       }
       _lastSyncedTurn = G.turn || 1;
     }
+
+    // ── Résoudre les mouvements de flotte arrivés ────────────────────────────
+    await processFleetMoves();
 
     // ── Traiter les combats résolus par la Cloud Function ──────────────────
     try {
@@ -3786,6 +3789,9 @@ window._queueResearch = async (id) => {
   const cost = getResearchCost(r);
   if (!canAfford(cost)) { notify(t('insufficientRes'), true); return; }
   if (!meetsReqs(r.requires)) { notify(t('prereqNotMet'), true); return; }
+  const currentLv = (G.research||{})[id] || 0;
+  const maxLv = r.maxLevel || 5;
+  if (currentLv >= maxLv) { notify(t('maxed'), true); return; }
   const rPlanet = AP();
   if ((rPlanet.buildQueue||[]).some(q=>q.id===id)) { notify(t('alreadyQueued'), true); return; }
   spend(cost);
