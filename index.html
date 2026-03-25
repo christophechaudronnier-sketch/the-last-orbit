@@ -251,6 +251,7 @@ const T = {
     spyBlocked: "Signal brouillé — données inaccessibles.",
     spyLevelLabel: "Espionnage adversaire",
     spyCost: "Coût : 100 ⚡ énergie",
+    defenseQueued: "en cours de déploiement !",
   },
   en: {
     title: "THE LAST ORBIT",
@@ -476,6 +477,7 @@ const T = {
     spyBlocked: "Signal jammed — data inaccessible.",
     spyLevelLabel: "Enemy espionage",
     spyCost: "Cost: 100 ⚡ energy",
+    defenseQueued: "being deployed!",
   }
 };
 
@@ -1009,9 +1011,18 @@ async function syncTurnFromServer() {
       }
       updateUI();
       // Notifier seulement si le tour a vraiment avance ET que ce n est pas le premier chargement
-      if ((G.turn || 1) > prevTurn && _lastSyncedTurn > 0) {
+      const turnAdvanced = (G.turn || 1) > prevTurn && _lastSyncedTurn > 0;
+      if (turnAdvanced) {
         notify(t('turnStarted'));
         addLog(`✅ ${t('turnStarted')}`, 'info');
+
+        // ── Résoudre les missions actives (côté client, un tour par mission) ──
+        if (G.activeMissions && G.activeMissions.length > 0) {
+          const resolved = [...G.activeMissions];
+          G.activeMissions = [];
+          resolved.forEach(m => processMissionResult(m));
+        }
+
         await saveGame();
       }
       _lastSyncedTurn = G.turn || 1;
@@ -1030,37 +1041,49 @@ async function syncTurnFromServer() {
         const res = atk.result;
         if (!res) continue;
 
-        // La Cloud Function a déjà crédité dans Firestore :
-        //   - la flotte survivante dans attacker.planets[0].fleet
-        //   - le loot dans attacker.resources
-        //   - combatWins si victoire
-        // Object.assign(G, freshDoc.data()) plus haut a déjà chargé ces valeurs.
-        // On affiche juste le rapport et le log — sans modifier G manuellement.
+        // Retrouver la planète source pour recréditer les survivants
+        const sourcePlanet = (G.planets || []).find(p => p.name === atk.attackerPlanet)
+                          || G.planets?.[0];
 
-        // Afficher le rapport de combat
+        if (sourcePlanet) {
+          // Survivants = vaisseaux envoyés - pertes
+          const sent   = atk.fleet      || {};
+          const losses = res.atkLosses  || {};
+          for (const shipType of Object.keys(sent)) {
+            const survived = Math.max(0, (sent[shipType] || 0) - (losses[shipType] || 0));
+            if (survived > 0) {
+              sourcePlanet.fleet = sourcePlanet.fleet || {};
+              sourcePlanet.fleet[shipType] = (sourcePlanet.fleet[shipType] || 0) + survived;
+            }
+          }
+        }
+
+        // Afficher le rapport de combat complet + écrire dans le journal
         showCombatReport(res, true, atk.targetName, atk.targetPlanet);
-
-        // Journal (lecture seule — les vraies valeurs viennent de Firestore via Object.assign)
         if (res.victory) {
           const lootMetal   = res.loot?.metal   || 0;
           const lootCrystal = res.loot?.crystal || 0;
+          G.combatWins = (G.combatWins || 0) + 1;
           addLog(`⚔️ ${lang==='fr'?'Victoire contre':'Victory against'} ${atk.targetName} — +${lootMetal}🪨 +${lootCrystal}💎`, 'victory');
         } else {
           addLog(`⚔️ ${lang==='fr'?'Défaite contre':'Defeat against'} ${atk.targetName}`, 'defeat');
         }
 
-        // Marquer comme traité — ne plus retraiter au prochain sync
+        // Marquer le doc comme traité pour ne pas le retraiter
         await updateDoc(doc(db, 'attacks', atkDoc.id), { status: 'seen' });
         combatChanged = true;
       }
       if (combatChanged) {
-        // G est déjà à jour via Object.assign — juste rafraîchir l'UI
+        await saveGame();
         updateUI();
       }
     } catch(combatErr) {
       console.warn('syncTurnFromServer: erreur traitement combats', combatErr);
     }
     // ── Fin traitement combats ─────────────────────────────────────────────
+
+    // ── Vérifier les alertes espionnage reçues pendant la session ──────────
+    await checkEspionageAlerts();
 
   } catch(e) {
     console.warn('syncTurnFromServer: erreur de rechargement', e);
@@ -1246,9 +1269,7 @@ function showCombatReport(report, isAttacker, opponentName, opponentPlanet) {
 
   const victory = isAttacker ? report.victory : !report.victory;
   const outcomeEl = document.getElementById('combat-report-outcome');
-  outcomeEl.textContent = victory
-    ? (lang==='fr' ? '🟢 VICTOIRE' : '🟢 VICTORY')
-    : (lang==='fr' ? '🔴 DÉFAITE'  : '🔴 DEFEAT');
+  outcomeEl.textContent = victory ? `🟢 ${t('combatVictory')}` : `🔴 ${t('combatDefeat')}`;
   outcomeEl.style.color = victory ? 'var(--accent3)' : 'var(--danger)';
 
   const subtitle = document.getElementById('combat-report-subtitle');
@@ -1276,10 +1297,19 @@ function showCombatReport(report, isAttacker, opponentName, opponentPlanet) {
   // Pertes
   const lossesEl = document.getElementById('combat-report-losses');
   const losses = isAttacker ? (report.atkLosses||{}) : (report.defLosses||{});
-  const SHIP_LABELS = { fighter: lang==='fr'?'Chasseurs':'Fighters', cruiser: lang==='fr'?'Croiseurs':'Cruisers', battleship: lang==='fr'?'Cuirassés':'Battleships', colonizer: lang==='fr'?'Colonisateurs':'Colonizers' };
+  const SHIP_LABELS = {
+    fighter:    t('fighters'),
+    cruiser:    t('cruisers'),
+    battleship: t('battleships'),
+    colonizer:  lang==='fr' ? 'Colonisateurs' : 'Colonizers',
+  };
+  const DEF_LABELS = {
+    shields: t('shields'),
+    cannons: t('cannons'),
+    rockets: t('rockets'),
+  };
   const lossLines = Object.entries(losses).filter(([,v])=>v>0).map(([k,v])=>`<span style="color:var(--danger)">−${v}</span> ${SHIP_LABELS[k]||k}`);
   if (!isAttacker && report.defLosesDefenses) {
-    const DEF_LABELS = { shields: lang==='fr'?'Boucliers':'Shields', cannons: lang==='fr'?'Canons':'Cannons', rockets: lang==='fr'?'Roquettes':'Rockets' };
     Object.entries(report.defLosesDefenses||{}).filter(([,v])=>v>0).forEach(([k,v])=>{
       lossLines.push(`<span style="color:var(--danger)">−${v}</span> ${DEF_LABELS[k]||k}`);
     });
@@ -1303,7 +1333,9 @@ async function processFleetMoves() {
     ));
     for (const moveSnap of snap.docs) {
       const mv = moveSnap.data();
-      if (G.turn < mv.arrivalTurn) continue; // pas encore arrivé
+      // Utiliser le timestamp réel si disponible, sinon fallback sur arrivalTurn
+      const now = Date.now();
+      if (mv.arrivalTimestamp ? now < mv.arrivalTimestamp : G.turn < mv.arrivalTurn) continue;
       // Transaction : vérifie que le mouvement est encore 'pending' avant d'appliquer
       let applied = false;
       try {
@@ -1401,6 +1433,11 @@ window._confirmMoveFleet = async (shipId, shipName, maxQty) => {
     sourcePlanet: sourcePlanet.name,
     destPlanet: destName,
     arrivalTurn: G.turn + turns,
+    arrivalTimestamp: (() => {
+      const d = new Date();
+      d.setHours(24 * turns, 0, 0, 0); // minuit dans N tours
+      return d.getTime();
+    })(),
     status: 'pending',
     createdAt: Date.now()
   });
@@ -1566,6 +1603,7 @@ window._closeAttackModal = () => { document.getElementById('attack-modal').style
 
 window._confirmAttack = async () => {
   if (!window._attackTarget) return;
+  if (window._attackTarget.uid === currentUser.uid) { notify(t('attackSelf'), true); return; }
   const totalSent = Object.values(window._attackFleet||{}).reduce((a,b)=>a+b,0);
   if (totalSent === 0) { notify(t('attackNoFleet'), true); return; }
   const sp = window._attackSourcePlanet || G.planets[0];
@@ -3781,7 +3819,7 @@ window._queueDefense = async (id) => {
   const name = lang==='fr'?d.nameFr:d.nameEn;
   planet.buildQueue.push({ type:'defense', id, name, qty });
   await saveGame(); updateUI(); renderDefense();
-  notify(`${qty}x ${name} ${t('shipQueued')}`);
+  notify(`${qty}x ${name} ${t('defenseQueued')}`);
 };
 
 window._cancelQueueItem = async (idx) => {
@@ -4104,37 +4142,53 @@ window._postPrivateTrade = async () => {
 
 window._acceptTrade = async (tradeId) => {
   try {
+    // Vérification rapide avant la transaction
     const snap = await getDoc(doc(db, 'trades', tradeId));
     if (!snap.exists()) { notify(lang==='fr'?'Offre introuvable.':'Offer not found.', true); return; }
     const tr = snap.data();
     if (tr.sellerUid === currentUser.uid) { notify(t('offerSelf'), true); return; }
     if (tr.status !== 'open') { notify(lang==='fr'?'Offre déjà traitée.':'Offer already processed.', true); return; }
     if (!canAfford({[tr.wantRes]: tr.wantAmt})) { notify(t('insufficientRes'), true); return; }
-    // Acheteur dépense wantAmt et reçoit giveAmt
-    spend({[tr.wantRes]: tr.wantAmt});
-    G.resources[tr.giveRes] += tr.giveAmt;
-    // Vendeur reçoit wantAmt (on met à jour via Firebase côté vendeur au prochain chargement)
-    // On stocke la récompense du vendeur dans la trade résolue
-    await updateDoc(doc(db, 'trades', tradeId), {
-      status: 'resolved',
-      buyerUid: currentUser.uid,
-      buyerName: G.commanderName,
-      resolvedAt: Date.now(),
+
+    // Transaction atomique pour éviter la double acceptation
+    await runTransaction(db, async (transaction) => {
+      const freshTrade = await transaction.get(doc(db, 'trades', tradeId));
+      if (!freshTrade.exists() || freshTrade.data().status !== 'open') {
+        throw new Error('already_processed');
+      }
+      // Marquer l'offre comme résolue atomiquement
+      transaction.update(doc(db, 'trades', tradeId), {
+        status: 'resolved',
+        buyerUid: currentUser.uid,
+        buyerName: G.commanderName,
+        resolvedAt: Date.now(),
+      });
+      // Créditer le vendeur dans la même transaction
+      const sellerRef = doc(db, 'players', tr.sellerUid);
+      const sellerSnap = await transaction.get(sellerRef);
+      if (sellerSnap.exists()) {
+        const newRes = { ...(sellerSnap.data().resources||{}) };
+        newRes[tr.wantRes] = (newRes[tr.wantRes]||0) + tr.wantAmt;
+        transaction.update(sellerRef, { resources: newRes });
+      }
     });
-    // Créditer le vendeur directement dans Firebase
-    const sellerSnap = await getDoc(doc(db, 'players', tr.sellerUid));
-    if (sellerSnap.exists()) {
-      const sellerData = sellerSnap.data();
-      const newRes = { ...(sellerData.resources||{}) };
-      newRes[tr.wantRes] = (newRes[tr.wantRes]||0) + tr.wantAmt;
-      await updateDoc(doc(db, 'players', tr.sellerUid), { resources: newRes });
-    }
+
+    // Créditer l'acheteur côté client (après succès de la transaction)
+    spend({[tr.wantRes]: tr.wantAmt});
+    G.resources[tr.giveRes] = (G.resources[tr.giveRes]||0) + tr.giveAmt;
     await saveGame();
     addLog(`💱 ${lang==='fr'?'Échange':'Trade'} : +${fmt(tr.giveAmt)}${RES_ICON[tr.giveRes]} −${fmt(tr.wantAmt)}${RES_ICON[tr.wantRes]} (${tr.sellerName})`, 'victory');
     notify(t('offerAccepted'));
     renderMarket();
     updateUI();
-  } catch(e) { console.error(e); notify(lang==='fr'?'Erreur lors de l\'échange.':'Trade error.', true); }
+  } catch(e) {
+    if (e.message === 'already_processed') {
+      notify(lang==='fr'?"Offre déjà acceptée par quelqu'un d'autre.":'Offer already taken.', true);
+    } else {
+      console.error(e);
+      notify(lang==='fr'?"Erreur lors de l'échange.":'Trade error.', true);
+    }
+  }
 };
 
 window._cancelTrade = async (tradeId) => {
@@ -4142,6 +4196,8 @@ window._cancelTrade = async (tradeId) => {
     const snap = await getDoc(doc(db, 'trades', tradeId));
     if (!snap.exists()) return;
     const tr = snap.data();
+    // Vérifier que c'est bien notre offre
+    if (tr.sellerUid !== currentUser.uid) { notify(lang==='fr'?'Vous ne pouvez pas annuler cette offre.':'You cannot cancel this offer.', true); return; }
     // Rembourser les ressources
     G.resources[tr.giveRes] = (G.resources[tr.giveRes]||0) + tr.giveAmt;
     await deleteDoc(doc(db, 'trades', tradeId));
