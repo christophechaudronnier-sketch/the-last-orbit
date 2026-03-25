@@ -1030,40 +1030,31 @@ async function syncTurnFromServer() {
         const res = atk.result;
         if (!res) continue;
 
-        // Retrouver la planète source pour recréditer les survivants
-        const sourcePlanet = (G.planets || []).find(p => p.name === atk.attackerPlanet)
-                          || G.planets?.[0];
+        // La Cloud Function a déjà crédité dans Firestore :
+        //   - la flotte survivante dans attacker.planets[0].fleet
+        //   - le loot dans attacker.resources
+        //   - combatWins si victoire
+        // Object.assign(G, freshDoc.data()) plus haut a déjà chargé ces valeurs.
+        // On affiche juste le rapport et le log — sans modifier G manuellement.
 
-        if (sourcePlanet) {
-          // Survivants = vaisseaux envoyés - pertes
-          const sent   = atk.fleet      || {};
-          const losses = res.atkLosses  || {};
-          for (const shipType of Object.keys(sent)) {
-            const survived = Math.max(0, (sent[shipType] || 0) - (losses[shipType] || 0));
-            if (survived > 0) {
-              sourcePlanet.fleet = sourcePlanet.fleet || {};
-              sourcePlanet.fleet[shipType] = (sourcePlanet.fleet[shipType] || 0) + survived;
-            }
-          }
-        }
-
-        // Afficher le rapport de combat complet + écrire dans le journal
+        // Afficher le rapport de combat
         showCombatReport(res, true, atk.targetName, atk.targetPlanet);
+
+        // Journal (lecture seule — les vraies valeurs viennent de Firestore via Object.assign)
         if (res.victory) {
           const lootMetal   = res.loot?.metal   || 0;
           const lootCrystal = res.loot?.crystal || 0;
-          G.combatWins = (G.combatWins || 0) + 1;
           addLog(`⚔️ ${lang==='fr'?'Victoire contre':'Victory against'} ${atk.targetName} — +${lootMetal}🪨 +${lootCrystal}💎`, 'victory');
         } else {
           addLog(`⚔️ ${lang==='fr'?'Défaite contre':'Defeat against'} ${atk.targetName}`, 'defeat');
         }
 
-        // Marquer le doc comme traité pour ne pas le retraiter
+        // Marquer comme traité — ne plus retraiter au prochain sync
         await updateDoc(doc(db, 'attacks', atkDoc.id), { status: 'seen' });
         combatChanged = true;
       }
       if (combatChanged) {
-        await saveGame();
+        // G est déjà à jour via Object.assign — juste rafraîchir l'UI
         updateUI();
       }
     } catch(combatErr) {
