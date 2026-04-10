@@ -1070,6 +1070,35 @@ async function syncTurnFromServer() {
     }
     // ── Fin traitement combats ─────────────────────────────────────────────
 
+    // ── Récupérer les crédits de vente en attente ────────────────────────
+    try {
+      const tradeCredits = await getDocs(query(
+        collection(db, 'trades'),
+        where('sellerUid', '==', currentUser.uid),
+        where('sellerCreditSeen', '==', false),
+        where('status', '==', 'resolved')
+      ));
+      let tradeChanged = false;
+      for (const trDoc of tradeCredits.docs) {
+        const tr = trDoc.data();
+        if (!tr.sellerCredit) continue;
+        // Créditer le vendeur chez lui-même
+        G.resources = G.resources || {};
+        G.resources[tr.sellerCredit.res] = (G.resources[tr.sellerCredit.res]||0) + tr.sellerCredit.amt;
+        addLog(`💱 ${lang==='fr'?'Vente conclue':'Sale completed'} : +${fmt(tr.sellerCredit.amt)}${RES_ICON[tr.sellerCredit.res]} (${tr.buyerName||'?'})`, 'victory');
+        // Marquer comme vu
+        await updateDoc(doc(db, 'trades', trDoc.id), { sellerCreditSeen: true });
+        tradeChanged = true;
+      }
+      if (tradeChanged) {
+        await saveGame();
+        updateUI();
+      }
+    } catch(tradeErr) {
+      console.warn('syncTurnFromServer: erreur crédits vente', tradeErr);
+    }
+    // ── Fin crédits vente ──────────────────────────────────────────────────
+
     // ── Vérifier les alertes espionnage reçues pendant la session ──────────
     await checkEspionageAlerts();
 
@@ -4127,31 +4156,24 @@ window._acceptTrade = async (tradeId) => {
     if (tr.status !== 'open') { notify(lang==='fr'?'Offre déjà traitée.':'Offer already processed.', true); return; }
     if (!canAfford({[tr.wantRes]: tr.wantAmt})) { notify(t('insufficientRes'), true); return; }
 
-    // Transaction atomique — marque l'offre comme résolue (read avant write)
+    // Transaction atomique — marque l'offre résolue + stocke le crédit vendeur dans le doc
     await runTransaction(db, async (transaction) => {
       const freshTrade = await transaction.get(doc(db, 'trades', tradeId));
       if (!freshTrade.exists() || freshTrade.data().status !== 'open') {
         throw new Error('already_processed');
       }
-      // Tous les reads sont faits, on peut écrire
       transaction.update(doc(db, 'trades', tradeId), {
         status: 'resolved',
         buyerUid: currentUser.uid,
         buyerName: G.commanderName,
         resolvedAt: Date.now(),
+        // Le vendeur récupérera ce crédit lui-même au prochain syncTurnFromServer
+        sellerCredit: { res: tr.wantRes, amt: tr.wantAmt },
+        sellerCreditSeen: false,
       });
     });
 
-    // Créditer le vendeur hors transaction (règle Firestore : seul le propriétaire écrit son doc)
-    const sellerRef = doc(db, 'players', tr.sellerUid);
-    const sellerSnap = await getDoc(sellerRef);
-    if (sellerSnap.exists()) {
-      const newRes = { ...(sellerSnap.data().resources||{}) };
-      newRes[tr.wantRes] = (newRes[tr.wantRes]||0) + tr.wantAmt;
-      await updateDoc(sellerRef, { resources: newRes });
-    }
-
-    // Créditer l'acheteur côté client
+    // Créditer l'acheteur (chacun n'écrit que chez soi)
     spend({[tr.wantRes]: tr.wantAmt});
     G.resources[tr.giveRes] = (G.resources[tr.giveRes]||0) + tr.giveAmt;
     await saveGame();
