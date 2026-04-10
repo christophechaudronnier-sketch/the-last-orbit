@@ -1405,7 +1405,7 @@ window._confirmMoveFleet = async (shipId, shipName, maxQty) => {
     sourcePlanet: sourcePlanet.name,
     destPlanet: destName,
     arrivalTurn: G.turn + turns,
-    arrivalTimestamp: Date.now() + turns * 24 * 60 * 60 * 1000,
+    arrivalTimestamp: (() => { const d = new Date(); d.setHours(24 * turns, 0, 0, 0); return d.getTime(); })(),
     status: 'pending',
     createdAt: Date.now()
   });
@@ -1600,7 +1600,7 @@ window._confirmAttack = async () => {
       attackerResearch: { ...G.research },
       turn: G.turn,
       arrivalTurn: G.turn + travelTurns,
-      arrivalTimestamp: Date.now() + travelTurns * 24 * 60 * 60 * 1000,
+      arrivalTimestamp: (() => { const d = new Date(); d.setHours(24 * travelTurns, 0, 0, 0); return d.getTime(); })(),
       status: 'pending',
       createdAt: Date.now(),
     });
@@ -2820,7 +2820,7 @@ async function renderAttackStatus(context) {
       if (isOut) {
         if (atk.arrivalTimestamp) {
           const msLeft = Math.max(0, atk.arrivalTimestamp - Date.now());
-          rem = Math.ceil(msLeft / (24 * 60 * 60 * 1000));
+          rem = Math.round(msLeft / (24 * 60 * 60 * 1000));
         } else {
           rem = Math.max(0, (atk.arrivalTurn || (atk.turn + 1)) - G.turn);
         }
