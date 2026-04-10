@@ -4127,30 +4127,31 @@ window._acceptTrade = async (tradeId) => {
     if (tr.status !== 'open') { notify(lang==='fr'?'Offre déjà traitée.':'Offer already processed.', true); return; }
     if (!canAfford({[tr.wantRes]: tr.wantAmt})) { notify(t('insufficientRes'), true); return; }
 
-    // Transaction atomique pour éviter la double acceptation
+    // Transaction atomique — marque l'offre comme résolue (read avant write)
     await runTransaction(db, async (transaction) => {
       const freshTrade = await transaction.get(doc(db, 'trades', tradeId));
       if (!freshTrade.exists() || freshTrade.data().status !== 'open') {
         throw new Error('already_processed');
       }
-      // Marquer l'offre comme résolue atomiquement
+      // Tous les reads sont faits, on peut écrire
       transaction.update(doc(db, 'trades', tradeId), {
         status: 'resolved',
         buyerUid: currentUser.uid,
         buyerName: G.commanderName,
         resolvedAt: Date.now(),
       });
-      // Créditer le vendeur dans la même transaction
-      const sellerRef = doc(db, 'players', tr.sellerUid);
-      const sellerSnap = await transaction.get(sellerRef);
-      if (sellerSnap.exists()) {
-        const newRes = { ...(sellerSnap.data().resources||{}) };
-        newRes[tr.wantRes] = (newRes[tr.wantRes]||0) + tr.wantAmt;
-        transaction.update(sellerRef, { resources: newRes });
-      }
     });
 
-    // Créditer l'acheteur côté client (après succès de la transaction)
+    // Créditer le vendeur hors transaction (règle Firestore : seul le propriétaire écrit son doc)
+    const sellerRef = doc(db, 'players', tr.sellerUid);
+    const sellerSnap = await getDoc(sellerRef);
+    if (sellerSnap.exists()) {
+      const newRes = { ...(sellerSnap.data().resources||{}) };
+      newRes[tr.wantRes] = (newRes[tr.wantRes]||0) + tr.wantAmt;
+      await updateDoc(sellerRef, { resources: newRes });
+    }
+
+    // Créditer l'acheteur côté client
     spend({[tr.wantRes]: tr.wantAmt});
     G.resources[tr.giveRes] = (G.resources[tr.giveRes]||0) + tr.giveAmt;
     await saveGame();
