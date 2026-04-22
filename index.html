@@ -1434,7 +1434,7 @@ window._confirmMoveFleet = async (shipId, shipName, maxQty) => {
     sourcePlanet: sourcePlanet.name,
     destPlanet: destName,
     arrivalTurn: G.turn + turns,
-    arrivalTimestamp: (() => { const d = new Date(); d.setHours(24 * turns, 0, 0, 0); return d.getTime(); })(),
+    arrivalTimestamp: (() => { const d = new Date(); d.setDate(d.getDate() + turns); d.setHours(0, 0, 0, 0); return d.getTime(); })(),
     status: 'pending',
     createdAt: Date.now()
   });
@@ -1629,7 +1629,7 @@ window._confirmAttack = async () => {
       attackerResearch: { ...G.research },
       turn: G.turn,
       arrivalTurn: G.turn + travelTurns,
-      arrivalTimestamp: (() => { const d = new Date(); d.setHours(24 * travelTurns, 0, 0, 0); return d.getTime(); })(),
+      arrivalTimestamp: (() => { const d = new Date(); d.setDate(d.getDate() + travelTurns); d.setHours(0, 0, 0, 0); return d.getTime(); })(),
       status: 'pending',
       createdAt: Date.now(),
     });
@@ -2854,7 +2854,13 @@ async function renderAttackStatus(context) {
           rem = Math.max(0, (atk.arrivalTurn || (atk.turn + 1)) - G.turn);
         }
       } else {
-        rem = 1; // attaque entrante : résolution au prochain tick
+        // Même calcul que les attaques sortantes — le défenseur voit le vrai décompte
+        if (atk.arrivalTimestamp) {
+          const msLeft = Math.max(0, atk.arrivalTimestamp - Date.now());
+          rem = Math.round(msLeft / (24 * 60 * 60 * 1000));
+        } else {
+          rem = Math.max(0, (atk.arrivalTurn || (atk.turn + 1)) - G.turn);
+        }
       }
       const fs = Object.entries(atk.fleet||{}).filter(([,v])=>v>0).map(([k,v])=>v+'x '+k).join(', ');
       const ec = isOut ? 'var(--accent3)' : 'var(--danger)';
