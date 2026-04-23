@@ -2468,14 +2468,18 @@ async function renderAlliance() {
           <div style="color:var(--text2);font-size:.85rem">${t('loading')}</div>
         </div>
         <div style="display:flex;gap:8px">
-          <input id="alliance-chat-input" type="text" placeholder="${t('messagePlaceholder')}"
-            style="flex:1;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:var(--text);padding:8px 12px;border-radius:3px;font-family:'Rajdhani',sans-serif;font-size:.9rem"
-            onkeydown="if(event.key==='Enter')window._sendAllianceMessage()">
-          <button onclick="window._sendAllianceMessage()" class="btn" style="padding:8px 16px">${t('sendMessage')}</button>
+          <input id="alliance-chat-input" type="text" placeholder="${t('messagePlaceholder')}" style="flex:1;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:var(--text);padding:8px 12px;border-radius:3px;font-family:'Rajdhani',sans-serif;font-size:.9rem">
+          <button id="alliance-chat-send" class="btn" style="padding:8px 16px">${t('sendMessage')}</button>
         </div>
       </div>`;
 
     el.innerHTML = html;
+
+    // Listeners chat — attachés après injection pour éviter les restrictions inline
+    const chatInput = document.getElementById('alliance-chat-input');
+    const chatSend  = document.getElementById('alliance-chat-send');
+    if (chatInput) chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') window._sendAllianceMessage(); });
+    if (chatSend)  chatSend.addEventListener('click', () => window._sendAllianceMessage());
 
     // Écoute temps réel du chat
     _allianceUnsub = onSnapshot(doc(db, 'alliances', G.allianceId), (snap) => {
