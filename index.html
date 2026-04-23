@@ -3861,10 +3861,13 @@ window._closeColonizeModal = () => {
   document.getElementById('colonize-modal').style.display = 'none';
 };
 
+let _colonizeLock = false;
 window._confirmColonize = async () => {
+  if (_colonizeLock) return;
   if (!window._colonizeTarget) return;
   if (G.planets.length >= maxPlanets()) { notify(t('colonizeMax'), true); return; }
   if (G.pendingColonization) { notify(t('colonizeAlready'), true); return; }
+  _colonizeLock = true;
   
   // Retire un colonisateur de la première planète qui en a un
   const sourcePlanet = G.planets.find(p => (p.fleet||{}).colonizer > 0);
@@ -3884,6 +3887,7 @@ window._confirmColonize = async () => {
   G.pendingColonization = { ...window._colonizeTarget, hexCol: col, hexRow: row, arrivalTurn: G.turn + colTurns };
   addLog(`🚀 ${lang==='fr'?'Colonisateur envoyé vers':'Colonizer sent to'} ${window._colonizeTarget.planetName}`, 'info');
   await saveGame();
+  _colonizeLock = false;
   window._closeColonizeModal();
   notify(t('colonizeLaunched'));
 };
@@ -5240,4 +5244,3 @@ window._notify = notify;
 
 </body>
 </html>
-é
