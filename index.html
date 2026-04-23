@@ -7,7 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600&display=swap" rel="stylesheet">
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc, serverTimestamp, addDoc, query, where, onSnapshot, deleteDoc, runTransaction, arrayUnion } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc, serverTimestamp, addDoc, query, where, onSnapshot, deleteDoc, runTransaction, arrayUnion, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 
 // ========== FIREBASE CONFIG ==========
@@ -2559,7 +2559,7 @@ function renderPage(id) {
   if (id==='buildings') renderBuildings();
   else if (id==='research') renderResearch();
   else if (id==='defense') renderDefense();
-  else if (id==='fleet') { renderFleet(); renderAttackStatus('fleet'); }
+  else if (id==='fleet') { renderFleet(); renderAttackStatus('fleet'); renderCombatReports(); }
   else if (id==='missions') renderMissions();
   else if (id==='log') renderLog();
   else if (id==='galaxy') renderGalaxy();
@@ -2731,6 +2731,125 @@ function renderResearch() {
     </div>`;
   });
 }
+
+// ============================================================
+// RAPPORTS DE COMBAT
+// ============================================================
+
+async function loadCombatReports() {
+  if (!currentUser) return [];
+  try {
+    const [atkSnap, defSnap] = await Promise.all([
+      getDocs(query(collection(db, 'combat_reports'),
+        where('attackerUid', '==', currentUser.uid),
+        orderBy('ts', 'desc'),
+        limit(10))),
+      getDocs(query(collection(db, 'combat_reports'),
+        where('targetUid', '==', currentUser.uid),
+        orderBy('ts', 'desc'),
+        limit(10))),
+    ]);
+    const all = [
+      ...atkSnap.docs.map(d => ({ id: d.id, _role: 'attacker', ...d.data() })),
+      ...defSnap.docs.map(d => ({ id: d.id, _role: 'target',   ...d.data() })),
+    ];
+    all.sort((a, b) => b.ts - a.ts);
+    return all.slice(0, 10);
+  } catch(e) { console.error('loadCombatReports:', e); return []; }
+}
+
+async function updateCombatReportBadge() {
+  if (!currentUser) return;
+  try {
+    const [atkSnap, defSnap] = await Promise.all([
+      getDocs(query(collection(db, 'combat_reports'),
+        where('attackerUid', '==', currentUser.uid),
+        where('readByAttacker', '==', false))),
+      getDocs(query(collection(db, 'combat_reports'),
+        where('targetUid',   '==', currentUser.uid),
+        where('readByTarget', '==', false))),
+    ]);
+    const count = atkSnap.size + defSnap.size;
+    const badge = document.getElementById('combat-report-badge');
+    if (!badge) return;
+    if (count > 0) { badge.textContent = count; badge.style.display = 'inline'; }
+    else { badge.style.display = 'none'; }
+  } catch(e) {}
+}
+
+async function markCombatReportRead(reportId, role) {
+  try {
+    const field = role === 'attacker' ? 'readByAttacker' : 'readByTarget';
+    await updateDoc(doc(db, 'combat_reports', reportId), { [field]: true });
+  } catch(e) {}
+}
+
+async function renderCombatReports() {
+  const zone = document.getElementById('fleet-combat-reports');
+  if (!zone) return;
+  zone.innerHTML = '<div style="color:var(--text2);font-size:.8rem;padding:8px 0">Chargement des rapports…</div>';
+  const reports = await loadCombatReports();
+
+  if (!reports.length) {
+    zone.innerHTML = '';
+    return;
+  }
+
+  const fmt = n => n >= 1000 ? (n/1000).toFixed(1)+'k' : String(n);
+  const rows = reports.map(r => {
+    const isAtk   = r._role === 'attacker';
+    const victory = isAtk ? r.victory : !r.victory;
+    const unread  = isAtk ? !r.readByAttacker : !r.readByTarget;
+    const outcome = victory ? '🟢 VICTOIRE' : '🔴 DÉFAITE';
+    const color   = victory ? 'var(--accent3)' : 'var(--danger)';
+    const vs      = isAtk
+      ? `vs <b>${r.targetName}</b> (${r.targetPlanet})`
+      : `⚔ <b>${r.attackerName}</b> (${r.attackerPlanet})`;
+    const date    = new Date(r.ts).toLocaleDateString([], {day:'2-digit', month:'2-digit'});
+    const time    = new Date(r.ts).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    const lootHtml = isAtk && r.victory && (r.loot?.metal||0) + (r.loot?.crystal||0) > 0
+      ? `<span style="color:var(--accent3);font-size:.75rem"> +${fmt(r.loot.metal)}🪨 +${fmt(r.loot.crystal)}💎</span>`
+      : '';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.05);cursor:pointer${unread?';background:rgba(255,255,255,.02)':''}"
+      onclick="window._openCombatReport('${r.id}','${r._role}')">
+      <div>
+        <span style="font-family:'Orbitron',monospace;font-size:.75rem;color:${color};font-weight:700">${outcome}</span>
+        ${unread ? '<span style="display:inline-block;width:6px;height:6px;background:var(--danger);border-radius:50%;margin-left:6px;vertical-align:middle"></span>' : ''}
+        <span style="font-size:.82rem;color:var(--text);margin-left:8px">${vs}</span>
+        ${lootHtml}
+      </div>
+      <span style="font-size:.68rem;color:var(--text2);white-space:nowrap;margin-left:12px">${date} ${time}</span>
+    </div>`;
+  }).join('');
+
+  zone.innerHTML = `<div style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:6px;padding:16px;margin-bottom:16px">
+    <div style="font-family:'Orbitron',monospace;font-size:.7rem;color:var(--text2);letter-spacing:2px;margin-bottom:12px">⚔️ RAPPORTS DE COMBAT</div>
+    ${rows}
+  </div>`;
+
+  // Marquer comme lus
+  for (const r of reports) {
+    const unread = r._role === 'attacker' ? !r.readByAttacker : !r.readByTarget;
+    if (unread) markCombatReportRead(r.id, r._role);
+  }
+  updateCombatReportBadge();
+}
+
+// Cache les rapports pour la modale
+let _combatReportsCache = [];
+
+window._openCombatReport = async (reportId, role) => {
+  // Chercher dans le cache ou recharger
+  let r = _combatReportsCache.find(x => x.id === reportId);
+  if (!r) {
+    const reports = await loadCombatReports();
+    _combatReportsCache = reports;
+    r = reports.find(x => x.id === reportId);
+  }
+  if (!r) return;
+  const isAtk = role === 'attacker';
+  showCombatReport(r, isAtk, isAtk ? r.targetName : r.attackerName, isAtk ? r.targetPlanet : r.attackerPlanet);
+};
 
 function renderFleet() {
   const grid = document.getElementById('fleet-grid');
@@ -4367,7 +4486,7 @@ onAuthStateChanged(auth, async (user) => {
     currentUser = user;
     const exists = await loadGame();
     if (!exists) showSetup();
-    else showGameScreen();
+    else { showGameScreen(); updateCombatReportBadge(); }
   } else if (!user) {
     showAuthScreen();
   }
@@ -4755,7 +4874,7 @@ window._notify = notify;
       <button class="nav-btn" onclick="window._showPage('research')" id="nav-research"><span class="nav-icon">🔬</span><span data-tkey="research">Recherche</span></button>
       <div class="nav-section">GUERRE</div>
       <button class="nav-btn" onclick="window._showPage('defense')" id="nav-defense"><span class="nav-icon">🛡️</span><span>Défense</span></button>
-      <button class="nav-btn" onclick="window._showPage('fleet')" id="nav-fleet"><span class="nav-icon">🚀</span><span data-tkey="fleet">Flotte</span></button>
+      <button class="nav-btn" onclick="window._showPage('fleet')" id="nav-fleet"><span class="nav-icon">🚀</span><span data-tkey="fleet">Flotte</span><span id="combat-report-badge" style="display:none;background:var(--danger);color:#fff;border-radius:50%;font-size:.6rem;font-family:'Orbitron',monospace;font-weight:700;padding:1px 5px;margin-left:4px;vertical-align:middle"></span></button>
       <button class="nav-btn" onclick="window._showPage('missions')" id="nav-missions"><span class="nav-icon">⚔️</span><span data-tkey="missions">Missions</span></button>
       <div class="nav-section">UNIVERS</div>
       <button class="nav-btn" onclick="window._showPage('galaxy')" id="nav-galaxy"><span class="nav-icon">🌌</span><span data-tkey="galaxy">Galaxie</span></button>
@@ -4860,6 +4979,7 @@ window._notify = notify;
         </div>
         <div id="fleet-colonization-status"></div>
         <div id="fleet-moves-status"></div>
+        <div id="fleet-combat-reports" style="margin-top:16px"></div>
         <div id="attack-status-fleet" style="display:none;background:rgba(255,40,40,.06);border:1px solid rgba(255,60,60,.25);border-radius:4px;padding:16px;margin-top:16px"></div>
       </div>
 
@@ -5120,3 +5240,4 @@ window._notify = notify;
 
 </body>
 </html>
+é
