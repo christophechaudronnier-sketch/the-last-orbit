@@ -1434,7 +1434,7 @@ window._confirmMoveFleet = async (shipId, shipName, maxQty) => {
     sourcePlanet: sourcePlanet.name,
     destPlanet: destName,
     arrivalTurn: G.turn + turns,
-    arrivalTimestamp: (() => { const d = new Date(); d.setDate(d.getDate() + turns); d.setHours(0, 0, 0, 0); return d.getTime(); })(),
+    arrivalTimestamp: (() => { const d = new Date(); d.setHours(24 * turns, 0, 0, 0); return d.getTime(); })(),
     status: 'pending',
     createdAt: Date.now()
   });
@@ -1521,7 +1521,12 @@ window._openAttackModal = async (targetUid, targetName, targetPlanet, targetCol,
     const fleetTotal = Object.values(p.fleet||{}).reduce((a,b)=>a+b,0);
     return !busy && fleetTotal > 0;
   });
-  if (defaultIdx === -1) { notify(t('attackAlready'), true); return; }
+  if (defaultIdx === -1) {
+    // Distinguer : toutes les planètes sont en vol vs toutes les flottes sont vides
+    const allBusy = G.planets.every(p => inFlightPlanets.has(p.name));
+    notify(allBusy ? t('attackAlready') : t('attackNoFleet'), true);
+    return;
+  }
   window._selectAttackSource(defaultIdx);
 
   document.getElementById('attack-modal').style.display = 'flex';
@@ -1629,7 +1634,7 @@ window._confirmAttack = async () => {
       attackerResearch: { ...G.research },
       turn: G.turn,
       arrivalTurn: G.turn + travelTurns,
-      arrivalTimestamp: (() => { const d = new Date(); d.setDate(d.getDate() + travelTurns); d.setHours(0, 0, 0, 0); return d.getTime(); })(),
+      arrivalTimestamp: (() => { const d = new Date(); d.setHours(24 * travelTurns, 0, 0, 0); return d.getTime(); })(),
       status: 'pending',
       createdAt: Date.now(),
     });
