@@ -2736,12 +2736,38 @@ function renderBuildings() {
   // Sélecteur de planète
   grid.innerHTML += renderPlanetSelector('buildings');
   const planet = AP();
+
+  // Bilan énergie global
+  const prod = getProduction();
+  let totalMineConsumption = 0;
+  (G.planets||[]).forEach(p => {
+    totalMineConsumption += (p.buildings?.mine_metal||0) + (p.buildings?.mine_crystal||0);
+  });
+  const energyBalance = prod.energy - totalMineConsumption;
+  const balanceColor = energyBalance >= 0 ? 'var(--energy,#facc15)' : '#f87171';
+  const balanceSign = energyBalance >= 0 ? '+' : '';
+  const warningMsg = energyBalance < 0
+    ? (lang==='fr' ? ' — mines à 50% !' : ' — mines at 50%!')
+    : '';
+  grid.innerHTML += `<div style="background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:10px 14px;margin-bottom:14px;font-family:'Orbitron',monospace;font-size:.8rem;display:flex;align-items:center;gap:12px;">
+    <span>⚡ ${lang==='fr'?'Bilan énergie':'Energy balance'} :</span>
+    <span style="color:${balanceColor};font-weight:700">${balanceSign}${energyBalance} /tour</span>
+    <span style="color:var(--text2);font-size:.75rem">(${lang==='fr'?'produite':'produced'} ${prod.energy} − ${lang==='fr'?'mines':'mines'} ${totalMineConsumption})${warningMsg}</span>
+  </div>`;
+
   BUILDINGS.forEach(b => {
     const lv = (planet.buildings||{})[b.id]||0;
     const cost = getBuildingCost(b, lv);
     const afford = canAfford(cost);
     const inQueue = (planet.buildQueue||[]).some(q=>q.id===b.id);
     const bonusText = b.production ? `+${b.prodBase*(lv+1)} ${t(b.production)}${t('perTurn')} (${lang==='fr'?'nv':'lv'}.${lv+1})` : '';
+    // Consommation énergie pour les mines
+    const isMine = b.id === 'mine_metal' || b.id === 'mine_crystal';
+    const consumptionText = isMine
+      ? (lv > 0
+        ? `<div style="font-size:.75rem;color:var(--energy,#facc15);margin-top:2px">⚡ ${lang==='fr'?`Consomme ${lv} énergie/tour — nv.${lv+1} consommera ${lv+1}`:`Consumes ${lv} energy/turn — lv.${lv+1} will consume ${lv+1}`}</div>`
+        : `<div style="font-size:.75rem;color:var(--energy,#facc15);margin-top:2px">⚡ ${lang==='fr'?'Chaque niveau consomme 1 énergie/tour':'Each level consumes 1 energy/turn'}</div>`)
+      : '';
 
     grid.innerHTML += `<div class="card">
       <div class="card-header">
@@ -2751,6 +2777,7 @@ function renderBuildings() {
       </div>
       <div class="card-desc">${lang==='fr'?b.descFr:b.descEn}</div>
       ${bonusText?`<div class="card-bonus">📈 ${bonusText}</div>`:''}
+      ${consumptionText}
       <div class="card-cost">
         ${cost.metal?`<span class="cost-item metal ${G.resources.metal<cost.metal?'cant-afford':''}">🪨 ${fmt(cost.metal)}</span>`:''}
         ${cost.crystal?`<span class="cost-item crystal ${G.resources.crystal<cost.crystal?'cant-afford':''}">💎 ${fmt(cost.crystal)}</span>`:''}
