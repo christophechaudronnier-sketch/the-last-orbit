@@ -486,7 +486,7 @@ function t(key) { return T[lang][key] || key; }
 
 // ========== GAME DATA ==========
 const BUILDINGS = [
-  { id: 'mine_metal', nameKey: 'mineMetal', icon: '⛏️', descFr: "Extrait du métal brut de la croûte planétaire.", descEn: "Extracts raw metal from the planetary crust.", costBase: {metal:60,crystal:15,energy:0}, production:'metal', prodBase:100 },
+  { id: 'mine_metal', nameKey: 'mineMetal', icon: '⛏️', descFr: "Extrait du métal brut de la croûte planétaire.", descEn: "Extracts raw metal from the planetary crust.", costBase: {metal:60,crystal:15,energy:0}, production:'metal', prodBase:120 },
   { id: 'mine_crystal', nameKey: 'mineCrystal', icon: '💠', descFr: "Extrait des cristaux rares essentiels à la technologie.", descEn: "Extracts rare crystals essential to technology.", costBase: {metal:48,crystal:24,energy:0}, production:'crystal', prodBase:70 },
   { id: 'power_plant', nameKey: 'powerPlant', icon: '🔋', descFr: "Génère de l'énergie pour vos installations.", descEn: "Generates energy to power your facilities.", costBase: {metal:75,crystal:30,energy:0}, production:'energy', prodBase:100 },
   { id: 'shipyard', nameKey: null, icon: '🛸', nameFr:'Chantier Naval', nameEn:'Shipyard', descFr: "Permet la construction de vaisseaux spatiaux.", descEn: "Enables construction of spacecraft.", costBase: {metal:200,crystal:100,energy:30}, production:null },
@@ -496,8 +496,8 @@ const BUILDINGS = [
 
 const RESEARCH = [
   { id:'combustion', icon:'🌀', nameFr:'Propulsion Ionique', nameEn:'Ion Propulsion', descFr:"Améliore la vitesse de votre flotte.", descEn:"Improves fleet speed.", costBase:{metal:0,crystal:400,energy:0}, requires:{research_lab:1}, bonusFr:"Flotte +20% vitesse", bonusEn:"Fleet +20% speed" },
-  { id:'weapons', icon:'⚡', nameFr:'Technologie des Armes', nameEn:'Weapons Technology', descFr:"Augmente la puissance d'attaque.", descEn:"Increases attack power.", costBase:{metal:800,crystal:200,energy:0}, requires:{research_lab:2}, bonusFr:"Attaque +25%", bonusEn:"Attack +25%" },
-  { id:'shields', icon:'🛡️', nameFr:'Technologie des Boucliers', nameEn:'Shield Technology', descFr:"Renforce les boucliers de votre flotte.", descEn:"Reinforces fleet shields.", costBase:{metal:200,crystal:600,energy:0}, requires:{research_lab:2}, bonusFr:"Défense +25%", bonusEn:"Defense +25%" },
+  { id:'weapons', icon:'⚡', nameFr:'Technologie des Armes', nameEn:'Weapons Technology', descFr:"Augmente la puissance d'attaque.", descEn:"Increases attack power.", costBase:{metal:800,crystal:200,energy:0}, requires:{research_lab:2}, bonusFr:"Attaque +10%", bonusEn:"Attack +10%" },
+  { id:'shields', icon:'🛡️', nameFr:'Technologie des Boucliers', nameEn:'Shield Technology', descFr:"Renforce les boucliers de votre flotte.", descEn:"Reinforces fleet shields.", costBase:{metal:200,crystal:600,energy:0}, requires:{research_lab:2}, bonusFr:"Défense +10%", bonusEn:"Defense +10%" },
   { id:'espionage', icon:'👁️', nameFr:"Technologie d'Espionnage", nameEn:'Espionage Technology', descFr:"Permet de sonder les systèmes ennemis.", descEn:"Allows scouting enemy systems.", costBase:{metal:0,crystal:1000,energy:0}, requires:{research_lab:3}, bonusFr:"Missions d'espionnage", bonusEn:"Espionage missions" },
   { id:'hyperdrive', icon:'🌌', nameFr:'Hyperpropulsion', nameEn:'Hyperdrive', descFr:"Permet de construire des cuirassés.", descEn:"Enables battleship construction.", costBase:{metal:0,crystal:2000,energy:600}, requires:{research_lab:4,combustion:1}, bonusFr:"Déblocage Cuirassés", bonusEn:"Unlocks Battleships" },
   { id:'colonization', icon:'🌍', nameFr:'Technologie de Colonisation', nameEn:'Colonization Technology', descFr:"Permet de coloniser des planètes vides. Nv.1 → 2 planètes, Nv.2 → 3 planètes.", descEn:"Allows colonizing empty planets. Lv.1 → 2 planets, Lv.2 → 3 planets.", costBase:{metal:1000,crystal:800,energy:0}, requires:{research_lab:2}, maxLevel:2, bonusFr:"Slot de planète supplémentaire", bonusEn:"Additional planet slot" },
@@ -930,7 +930,7 @@ function computeScore(data) {
 }
 
 function getProduction() {
-  const prod = { metal:200, crystal:100, energy:100 };
+  const prod = { metal:300, crystal:100, energy:100 };
   (G.planets||[]).forEach(planet => {
     BUILDINGS.forEach(b => {
       const lv = (planet.buildings||{})[b.id]||0;
@@ -938,6 +938,22 @@ function getProduction() {
       prod[b.production] += b.prodBase * lv;
     });
   });
+  // Contrainte énergie sur les mines : chaque niveau de mine consomme 1 énergie/tour
+  // Si déficit, toutes les mines tournent à 50%
+  let energyConsumedByMines = 0;
+  (G.planets||[]).forEach(planet => {
+    energyConsumedByMines += (planet.buildings?.mine_metal||0) + (planet.buildings?.mine_crystal||0);
+  });
+  if (prod.energy < energyConsumedByMines) {
+    let rawMineMetal = 0, rawMineCrystal = 0;
+    (G.planets||[]).forEach(planet => {
+      rawMineMetal   += (planet.buildings?.mine_metal||0)   * 120;
+      rawMineCrystal += (planet.buildings?.mine_crystal||0) * 70;
+    });
+    prod.metal   -= Math.floor(rawMineMetal   * 0.5);
+    prod.crystal -= Math.floor(rawMineCrystal * 0.5);
+    prod._energyWarning = true; // flag pour affichage UI
+  }
   return prod;
 }
 function canAfford(cost) {
@@ -958,8 +974,8 @@ function meetsReqs(requires) {
   return true;
 }
 function totalFleetPower() {
-  const wB = 1 + (G.research?.weapons||0) * 0.25;
-  const sB = 1 + (G.research?.shields||0) * 0.25;
+  const wB = 1 + (G.research?.weapons||0) * 0.10;
+  const sB = 1 + (G.research?.shields||0) * 0.10;
   let att = 0, def = 0;
   (G.planets||[]).forEach(planet => {
     const fl = planet.fleet||{};
@@ -1253,8 +1269,8 @@ function addLog(msg, type) {
 // la prévisualisation de puissance dans l'UI (affichage uniquement, pas de résolution).
 
 function calcFleetPower(fleet, researchWeapons, researchShields) {
-  const wB = 1 + (researchWeapons||0) * 0.25;
-  const sB = 1 + (researchShields||0) * 0.25;
+  const wB = 1 + (researchWeapons||0) * 0.10;
+  const sB = 1 + (researchShields||0) * 0.10;
   let att = 0, def = 0;
   att += (fleet.fighter||0)    * 50   * wB;
   att += (fleet.cruiser||0)    * 200  * wB;
@@ -1266,7 +1282,7 @@ function calcFleetPower(fleet, researchWeapons, researchShields) {
 }
 
 function calcPlayerDefensePower(playerData) {
-  const sB = 1 + (playerData.research?.shields||0) * 0.25;
+  const sB = 1 + (playerData.research?.shields||0) * 0.10;
   let def = 0;
   (playerData.planets || []).forEach(planet => {
     const fleet = planet.fleet||{};
@@ -1425,6 +1441,14 @@ window._confirmMoveFleet = async (shipId, shipName, maxQty) => {
 
   const turns = calcTravelTurns(sourcePlanet.hexCol ?? 0, sourcePlanet.hexRow ?? 0, dest.hexCol ?? 0, dest.hexRow ?? 0, G.research['combustion'] || 0);
 
+  // Vérification carburant énergie
+  const moveFuelCost = calcFleetFuelCost({ [shipId]: qty }, turns);
+  if ((G.resources.energy || 0) < moveFuelCost) {
+    notify(lang==='fr' ? `Énergie insuffisante ! Carburant requis : ${moveFuelCost} ⚡` : `Insufficient energy! Fuel required: ${moveFuelCost} ⚡`, true);
+    return;
+  }
+  G.resources.energy = Math.max(0, (G.resources.energy || 0) - moveFuelCost);
+
   // Enregistrer le mouvement en Firestore
   await addDoc(collection(db, 'fleet_moves'), {
     ownerUid: currentUser.uid,
@@ -1548,8 +1572,8 @@ window._selectAttackSource = (planetIdx) => {
   });
 
   // Mettre à jour la liste de vaisseaux
-  const wB = 1 + (G.research['weapons']||0) * 0.25;
-  const sB = 1 + (G.research['shields']||0) * 0.25;
+  const wB = 1 + (G.research['weapons']||0) * 0.10;
+  const sB = 1 + (G.research['shields']||0) * 0.10;
   const rows = SHIPS.map(s => {
     const owned = (sp.fleet||{})[s.id]||0;
     if (owned === 0) return '';
@@ -1591,6 +1615,7 @@ window._adjustAttackQty = (shipId, delta) => {
   if (el) el.textContent = window._attackFleet[shipId];
   const preview = calcFleetPower(window._attackFleet, G.research.weapons||0, G.research.shields||0);
   document.getElementById('attack-power-preview').textContent = `⚔️ ${preview.att >= 1000 ? (preview.att/1000).toFixed(1)+'k' : preview.att}`;
+  _updateAttackFuelPreview();
 };
 
 window._setAttackMax = (shipId, max) => {
@@ -1599,8 +1624,35 @@ window._setAttackMax = (shipId, max) => {
   if (el) el.textContent = max;
   const preview = calcFleetPower(window._attackFleet, G.research.weapons||0, G.research.shields||0);
   document.getElementById('attack-power-preview').textContent = `⚔️ ${preview.att >= 1000 ? (preview.att/1000).toFixed(1)+'k' : preview.att}`;
+  _updateAttackFuelPreview();
 };
 
+function _updateAttackFuelPreview() {
+  const sp = window._attackSourcePlanet || G.planets[0];
+  const travelTurns = calcTravelTurns(
+    sp.hexCol ?? 0, sp.hexRow ?? 0,
+    window._attackTarget?.col ?? 0, window._attackTarget?.row ?? 0,
+    G.research.combustion || 0
+  );
+  const fuel = calcFleetFuelCost(window._attackFleet, travelTurns);
+  const el = document.getElementById('attack-fuel-preview');
+  if (!el) return;
+  const hasEnough = (G.resources.energy || 0) >= fuel;
+  el.textContent = `⚡ Carburant : ${fuel} (stock : ${Math.floor(G.resources.energy||0)})`;
+  el.style.color = hasEnough ? 'var(--energy)' : '#f87171';
+}
+
+
+function calcFleetFuelCost(fleet, travelTurns) {
+  let totalCost = 0;
+  SHIPS.forEach(s => {
+    const qty = (fleet[s.id] || 0);
+    if (!qty) return;
+    const shipCost = (s.cost.metal || 0) + (s.cost.crystal || 0);
+    totalCost += Math.ceil(shipCost / 100) * qty * travelTurns;
+  });
+  return totalCost;
+}
 window._closeAttackModal = () => { document.getElementById('attack-modal').style.display = 'none'; };
 
 window._confirmAttack = async () => {
@@ -1623,6 +1675,13 @@ window._confirmAttack = async () => {
       window._attackTarget.col ?? 0, window._attackTarget.row ?? 0,
       G.research.combustion || 0
     );
+    // Vérification carburant énergie
+    const fuelCost = calcFleetFuelCost(window._attackFleet, travelTurns);
+    if ((G.resources.energy || 0) < fuelCost) {
+      notify(lang==='fr' ? `Énergie insuffisante ! Carburant requis : ${fuelCost} ⚡` : `Insufficient energy! Fuel required: ${fuelCost} ⚡`, true);
+      return;
+    }
+    G.resources.energy = Math.max(0, (G.resources.energy || 0) - fuelCost);
     await addDoc(collection(db, 'attacks'), {
       attackerUid: currentUser.uid,
       attackerName: G.commanderName,
@@ -2595,7 +2654,13 @@ function updateUI() {
   document.getElementById('energy-val').textContent = fmt(G.resources.energy);
   document.getElementById('metal-rate').textContent = '+'+fmt(prod.metal)+t('perTurn');
   document.getElementById('crystal-rate').textContent = '+'+fmt(prod.crystal)+t('perTurn');
-  document.getElementById('energy-rate').textContent = '+'+fmt(prod.energy)+t('perTurn');
+  if (prod._energyWarning) {
+    document.getElementById('energy-rate').textContent = '⚠️ DÉFICIT ÉNERGIE';
+    document.getElementById('energy-rate').style.color = '#f87171';
+  } else {
+    document.getElementById('energy-rate').textContent = '+'+fmt(prod.energy)+t('perTurn');
+    document.getElementById('energy-rate').style.color = '';
+  }
   document.getElementById('turn-display').textContent = (lang==='fr'?'Tour ':'Turn ')+G.turn;
   document.getElementById('planet-name-display').textContent = G.planets[0].name;
 
@@ -2873,8 +2938,8 @@ function renderFleet() {
         return `${bn?getBName(bn):rn?getRName(rn):k} ${t('level')}${v}`;
       }).join(', ');
     }
-    const wB = 1+G.research['weapons']*0.25;
-    const sB = 1+G.research['shields']*0.25;
+    const wB = 1+G.research['weapons']*0.10;
+    const sB = 1+G.research['shields']*0.10;
     grid.innerHTML += `<div class="card ${!meetsR?'tech-locked':''}">
       <div class="card-header">
         <span class="card-icon">${s.icon}</span>
@@ -2943,8 +3008,8 @@ function renderFleet() {
   }
   const tbody = document.getElementById('fleet-table-body');
   if (tbody) {
-    const wB = 1+G.research['weapons']*0.25;
-    const sB = 1+G.research['shields']*0.25;
+    const wB = 1+G.research['weapons']*0.10;
+    const sB = 1+G.research['shields']*0.10;
     tbody.innerHTML = SHIPS.map(s=>`<tr>
       <td>${s.icon} ${getSName(s)}</td>
       <td style="font-family:'Orbitron',monospace;color:var(--accent)">${(planet.fleet||{})[s.id]||0}</td>
@@ -3182,7 +3247,7 @@ function renderDefense() {
   grid.innerHTML = '';
   grid.innerHTML += renderPlanetSelector('defense');
   const planet = AP();
-  const sB = 1 + (G.research['shields']||0) * 0.25;
+  const sB = 1 + (G.research['shields']||0) * 0.10;
   DEFENSES.forEach(d => {
     const meetsR = meetsReqs(d.requires);
     const afford = canAfford(d.cost);
@@ -5239,7 +5304,8 @@ window._notify = notify;
       <span style="font-size:.8rem;color:var(--text2)">Puissance d'attaque estimée :</span>
       <span id="attack-power-preview" style="font-family:'Orbitron',monospace;color:var(--accent2);font-size:1rem;font-weight:700">⚔️ 0</span>
     </div>
-    <div id="attack-travel-time" style="font-size:.8rem;color:var(--accent);text-align:center;margin-bottom:16px;font-family:'Orbitron',monospace;letter-spacing:1px"></div>
+    <div id="attack-travel-time" style="font-size:.8rem;color:var(--accent);text-align:center;margin-bottom:4px;font-family:'Orbitron',monospace;letter-spacing:1px"></div>
+    <div id="attack-fuel-preview" style="font-size:.8rem;text-align:center;margin-bottom:16px;font-family:'Orbitron',monospace;letter-spacing:1px"></div>
     <div style="display:flex;gap:10px">
       <button class="btn" style="border-color:var(--border);color:var(--text2)" onclick="window._closeAttackModal()">ANNULER</button>
       <button class="btn orange" onclick="window._confirmAttack()">🚀 ENVOYER L'ESCADRON</button>
