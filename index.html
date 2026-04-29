@@ -1523,13 +1523,18 @@ window._openAttackModal = async (targetUid, targetName, targetPlanet, targetCol,
       where('attackerUid', '==', currentUser.uid),
       where('status', '==', 'pending')
     ));
-    inFlight.forEach(d => inFlightPlanets.add(d.data().attackerPlanet));
+    inFlight.forEach(d => {
+      const data = d.data();
+      // Utiliser l'index si disponible, sinon fallback sur le nom
+      if (data.attackerPlanetIdx !== undefined) inFlightPlanets.add('idx:'+data.attackerPlanetIdx);
+      else inFlightPlanets.add(data.attackerPlanet);
+    });
   } catch(e) {}
 
   const tabsEl = document.getElementById('attack-source-tabs');
   tabsEl.innerHTML = G.planets.map((p, i) => {
     const fleetTotal = Object.values(p.fleet||{}).reduce((a,b)=>a+b,0);
-    const busy = inFlightPlanets.has(p.name);
+    const busy = inFlightPlanets.has('idx:'+i);
     const disabled = busy || fleetTotal === 0;
     const label = busy ? `${p.emoji||'🪐'} ${p.name} 🚀` : `${p.emoji||'🪐'} ${p.name}`;
     return `<button id="atk-tab-${i}" onclick="window._selectAttackSource(${i})"
@@ -1662,12 +1667,19 @@ window._confirmAttack = async () => {
   if (totalSent === 0) { notify(t('attackNoFleet'), true); return; }
   const sp = window._attackSourcePlanet || G.planets[0];
   try {
-    const existing = await getDocs(query(collection(db, 'attacks'),
+    const spIdx = G.planets.indexOf(sp);
+    const existingSnap = await getDocs(query(collection(db, 'attacks'),
       where('attackerUid', '==', currentUser.uid),
-      where('attackerPlanet', '==', sp.name),
       where('status', '==', 'pending')
     ));
-    if (!existing.empty) { notify(t('attackAlready'), true); return; }
+    // Vérifier par index de planète (évite la collision entre planètes homonymes)
+    const alreadyBusy = existingSnap.docs.some(d => {
+      const data = d.data();
+      return data.attackerPlanetIdx !== undefined
+        ? data.attackerPlanetIdx === spIdx
+        : data.attackerPlanet === sp.name;
+    });
+    if (alreadyBusy) { notify(t('attackAlready'), true); return; }
   } catch(e) {}
   try {
     const travelTurns = calcTravelTurns(
@@ -1686,6 +1698,7 @@ window._confirmAttack = async () => {
       attackerUid: currentUser.uid,
       attackerName: G.commanderName,
       attackerPlanet: sp.name,
+      attackerPlanetIdx: G.planets.indexOf(sp),
       targetUid: window._attackTarget.uid,
       targetName: window._attackTarget.name,
       targetPlanet: window._attackTarget.planet,
