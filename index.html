@@ -938,11 +938,11 @@ function getProduction() {
       prod[b.production] += b.prodBase * lv;
     });
   });
-  // Contrainte énergie sur les mines : chaque niveau de mine consomme 1 énergie/tour
+  // Contrainte énergie sur les mines : chaque niveau de mine consomme 30 énergie/tour
   // Si déficit, toutes les mines tournent à 50%
   let energyConsumedByMines = 0;
   (G.planets||[]).forEach(planet => {
-    energyConsumedByMines += (planet.buildings?.mine_metal||0) + (planet.buildings?.mine_crystal||0);
+    energyConsumedByMines += ((planet.buildings?.mine_metal||0) + (planet.buildings?.mine_crystal||0)) * 30;
   });
   if (prod.energy < energyConsumedByMines) {
     let rawMineMetal = 0, rawMineCrystal = 0;
@@ -2778,8 +2778,8 @@ function renderBuildings() {
     const isMine = b.id === 'mine_metal' || b.id === 'mine_crystal';
     const consumptionText = isMine
       ? (lv > 0
-        ? `<div style="font-size:.75rem;color:var(--energy,#facc15);margin-top:2px">⚡ ${lang==='fr'?`Consomme ${lv} énergie/tour — nv.${lv+1} consommera ${lv+1}`:`Consumes ${lv} energy/turn — lv.${lv+1} will consume ${lv+1}`}</div>`
-        : `<div style="font-size:.75rem;color:var(--energy,#facc15);margin-top:2px">⚡ ${lang==='fr'?'Chaque niveau consomme 1 énergie/tour':'Each level consumes 1 energy/turn'}</div>`)
+        ? `<div style="font-size:.75rem;color:var(--energy,#facc15);margin-top:2px">⚡ ${lang==='fr'?`Consomme ${lv*30} énergie/tour — nv.${lv+1} consommera ${(lv+1)*30}`:`Consumes ${lv*30} energy/turn — lv.${lv+1} will consume ${(lv+1)*30}`}</div>`
+        : `<div style="font-size:.75rem;color:var(--energy,#facc15);margin-top:2px">⚡ ${lang==='fr'?'Chaque niveau consomme 30 énergie/tour':'Each level consumes 30 energy/turn'}</div>`)
       : '';
 
     grid.innerHTML += `<div class="card">
