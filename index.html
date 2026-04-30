@@ -2754,7 +2754,7 @@ function renderBuildings() {
   const prod = getProduction();
   let totalMineConsumption = 0;
   (G.planets||[]).forEach(p => {
-    totalMineConsumption += (p.buildings?.mine_metal||0) + (p.buildings?.mine_crystal||0);
+    totalMineConsumption += ((p.buildings?.mine_metal||0) + (p.buildings?.mine_crystal||0)) * 30;
   });
   const energyBalance = prod.energy - totalMineConsumption;
   const balanceColor = energyBalance >= 0 ? 'var(--energy,#facc15)' : '#f87171';
