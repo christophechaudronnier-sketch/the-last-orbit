@@ -3994,8 +3994,34 @@ window._confirmColonize = async () => {
     while (usedCoords.includes(`${col},${row}`) && tries < 50);
   }
   const colTurns = calcColonizeTurns(G.planets[0].hexCol??0, G.planets[0].hexRow??0, col??0, row??0, G.research.combustion||0);
-  G.pendingColonization = { ...window._colonizeTarget, hexCol: col, hexRow: row, arrivalTurn: G.turn + colTurns };
-  addLog(`🚀 ${lang==='fr'?'Colonisateur envoyé vers':'Colonizer sent to'} ${window._colonizeTarget.planetName}`, 'info');
+
+  // Vérifier l'unicité du nom dans toute la galaxie (protection côté client)
+  let finalPlanetName = window._colonizeTarget.planetName;
+  try {
+    const allPlayers = await loadGalaxy();
+    const usedNames = new Set();
+    // Noms de mes propres planètes
+    (G.planets || []).forEach(p => { if (p.name) usedNames.add(p.name.trim().toLowerCase()); });
+    if (G.pendingColonization?.planetName) usedNames.add(G.pendingColonization.planetName.trim().toLowerCase());
+    // Noms des autres joueurs
+    allPlayers.forEach(p => {
+      (p.planets || []).forEach(pl => { if (pl.name) usedNames.add(pl.name.trim().toLowerCase()); });
+      if (p.pendingColonization?.planetName) usedNames.add(p.pendingColonization.planetName.trim().toLowerCase());
+    });
+    // Garantir l'unicité : ajouter -2, -3... si nécessaire
+    let candidate = finalPlanetName.trim();
+    let suffix = 2;
+    while (usedNames.has(candidate.toLowerCase())) {
+      candidate = `${finalPlanetName.trim()}-${suffix}`;
+      suffix++;
+    }
+    finalPlanetName = candidate;
+  } catch(e) {
+    console.warn('Vérification unicité nom colonie échouée (non bloquant):', e);
+  }
+
+  G.pendingColonization = { ...window._colonizeTarget, planetName: finalPlanetName, hexCol: col, hexRow: row, arrivalTurn: G.turn + colTurns };
+  addLog(`🚀 ${lang==='fr'?'Colonisateur envoyé vers':'Colonizer sent to'} ${finalPlanetName}`, 'info');
   await saveGame();
   _colonizeLock = false;
   window._closeColonizeModal();
