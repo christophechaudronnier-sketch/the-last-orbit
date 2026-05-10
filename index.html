@@ -3925,14 +3925,21 @@ function renderPlanetSelector(pageId) {
   const tabs = G.planets.map((p, i) => {
     const isActive = i === activePlanetIndex;
     const label = i === 0 ? (lang==='fr'?'Planète principale':'Main Planet') : `${lang==='fr'?'Colonie':'Colony'} ${i}`;
+    const canRename = i > 0 && !p.renamed;
+    const renameBtn = canRename
+      ? `<span onclick="event.stopPropagation();window._openRenameModal(${i})" title="${lang==='fr'?'Renommer (une seule fois)':'Rename (once)'}"
+          style="margin-left:6px;cursor:pointer;font-size:.8rem;opacity:.6;transition:opacity .2s"
+          onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='.6'">✏️</span>`
+      : '';
     return `<button onclick="window._selectPlanet(${i}, '${pageId}')"
       style="padding:6px 16px;background:${isActive?'rgba(0,200,255,.15)':'var(--panel2)'};
       border:1px solid ${isActive?'var(--accent)':'var(--border)'};
       color:${isActive?'var(--accent)':'var(--text2)'};
       font-family:'Rajdhani',sans-serif;font-size:.85rem;font-weight:700;letter-spacing:1px;
-      cursor:pointer;border-radius:2px;transition:all .2s;">
+      cursor:pointer;border-radius:2px;transition:all .2s;display:inline-flex;align-items:center;">
       ${p.emoji} ${p.name}
       <span style="font-size:.7rem;color:${isActive?'var(--accent)':'var(--text2)'}"> — ${label}</span>
+      ${renameBtn}
     </button>`;
   }).join('');
   return `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;padding:14px;background:var(--panel);border:1px solid var(--border);border-radius:4px;align-items:center;">
@@ -3940,6 +3947,68 @@ function renderPlanetSelector(pageId) {
     ${tabs}
   </div>`;
 }
+
+// ===== RENOMMAGE DE COLONIE =====
+window._openRenameModal = (planetIdx) => {
+  const planet = G.planets[planetIdx];
+  if (!planet || planet.renamed) return;
+  const modal = document.getElementById('rename-modal');
+  document.getElementById('rename-modal-current').textContent = `${planet.emoji} ${planet.name}`;
+  document.getElementById('rename-input').value = '';
+  document.getElementById('rename-error').textContent = '';
+  modal._planetIdx = planetIdx;
+  modal.style.display = 'flex';
+  setTimeout(() => document.getElementById('rename-input').focus(), 100);
+};
+
+window._closeRenameModal = () => {
+  document.getElementById('rename-modal').style.display = 'none';
+};
+
+window._confirmRename = async () => {
+  const modal = document.getElementById('rename-modal');
+  const idx = modal._planetIdx;
+  const planet = G.planets[idx];
+  if (!planet || planet.renamed) return;
+
+  const newName = document.getElementById('rename-input').value.trim();
+  const errorEl = document.getElementById('rename-error');
+
+  // Validations locales
+  if (!newName) { errorEl.textContent = lang==='fr' ? 'Le nom ne peut pas être vide.' : 'Name cannot be empty.'; return; }
+  if (newName.length > 30) { errorEl.textContent = lang==='fr' ? 'Maximum 30 caractères.' : 'Maximum 30 characters.'; return; }
+
+  // Vérifier l'unicité dans toute la galaxie
+  errorEl.textContent = lang==='fr' ? 'Vérification en cours…' : 'Checking…';
+  try {
+    const allPlayers = await loadGalaxy();
+    const usedNames = new Set();
+    (G.planets || []).forEach((p, i) => { if (i !== idx && p.name) usedNames.add(p.name.trim().toLowerCase()); });
+    allPlayers.forEach(p => {
+      (p.planets || []).forEach(pl => { if (pl.name) usedNames.add(pl.name.trim().toLowerCase()); });
+      if (p.pendingColonization?.planetName) usedNames.add(p.pendingColonization.planetName.trim().toLowerCase());
+    });
+    if (usedNames.has(newName.toLowerCase())) {
+      errorEl.textContent = lang==='fr' ? 'Ce nom est déjà utilisé dans la galaxie.' : 'This name is already used in the galaxy.';
+      return;
+    }
+  } catch(e) {
+    errorEl.textContent = lang==='fr' ? 'Erreur de vérification, réessaie.' : 'Verification error, please retry.';
+    return;
+  }
+
+  // Appliquer le renommage
+  const oldName = planet.name;
+  planet.name = newName;
+  planet.renamed = true;
+  addLog(`✏️ ${lang==='fr'?'Colonie renommée :':'Colony renamed:'} ${oldName} → ${newName}`, 'info');
+  await saveGame();
+  window._closeRenameModal();
+  // Rafraîchir l'affichage
+  renderOverviewSelector();
+  updateUI();
+  notify(lang==='fr' ? `Colonie renommée : ${newName}` : `Colony renamed: ${newName}`);
+};
 
 window._selectPlanet = (idx, pageId) => {
   activePlanetIndex = idx;
@@ -5308,6 +5377,24 @@ window._notify = notify;
       </div>
 
 <!-- COLONIZE MODAL -->
+<!-- ===== MODAL RENOMMAGE COLONIE ===== -->
+<div id="rename-modal" style="display:none;position:fixed;inset:0;z-index:300;align-items:center;justify-content:center;background:rgba(0,0,0,.75)">
+  <div style="background:var(--panel);border:1px solid var(--accent);border-radius:6px;padding:28px 32px;max-width:360px;width:90%;display:flex;flex-direction:column;gap:16px">
+    <div style="font-family:'Orbitron',monospace;font-size:.8rem;color:var(--accent);letter-spacing:2px;text-transform:uppercase">✏️ Renommer la colonie</div>
+    <div style="font-size:.85rem;color:var(--text2)">Nom actuel : <span id="rename-modal-current" style="color:var(--text);font-weight:700"></span></div>
+    <div style="font-size:.75rem;color:var(--text2);opacity:.7">Cette action est définitive — une seule fois par colonie.</div>
+    <input id="rename-input" type="text" maxlength="30" placeholder="Nouveau nom…"
+      style="background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:10px 14px;font-family:'Rajdhani',sans-serif;font-size:.95rem;border-radius:3px;outline:none;width:100%;box-sizing:border-box"
+      onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"
+      onkeydown="if(event.key==='Enter')window._confirmRename();if(event.key==='Escape')window._closeRenameModal()">
+    <div id="rename-error" style="font-size:.78rem;color:#f87171;min-height:1em"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn" style="border-color:var(--border);color:var(--text2)" onclick="window._closeRenameModal()">Annuler</button>
+      <button class="btn" style="border-color:var(--accent);color:var(--accent);background:rgba(0,200,255,.08)" onclick="window._confirmRename()">✔ Confirmer</button>
+    </div>
+  </div>
+</div>
+
 <div id="colonize-modal" style="display:none;position:fixed;inset:0;z-index:300;align-items:center;justify-content:center;background:rgba(0,0,0,.75)">
   <div style="background:var(--panel2);border:1px solid rgba(127,255,107,.3);border-radius:6px;padding:32px;width:440px;max-width:95vw;box-shadow:0 0 40px rgba(127,255,107,.15)">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
