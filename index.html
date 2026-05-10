@@ -2796,7 +2796,7 @@ function renderBuildings() {
         ${cost.crystal?`<span class="cost-item crystal ${G.resources.crystal<cost.crystal?'cant-afford':''}">💎 ${fmt(cost.crystal)}</span>`:''}
         ${cost.energy?`<span class="cost-item energy ${G.resources.energy<cost.energy?'cant-afford':''}">⚡ ${fmt(cost.energy)}</span>`:''}
       </div>
-      <button class="btn" onclick="window._queueBuilding('${b.id}')" ${(!afford||inQueue)?'disabled':''}>
+      <button class="btn" style="width:100%" onclick="window._queueBuilding('${b.id}')" ${(!afford||inQueue)?'disabled':''}>
         ${inQueue?t('inQueue'):t('build')}
       </button>
     </div>`;
@@ -2835,7 +2835,7 @@ function renderResearch() {
         ${cost.metal?`<span class="cost-item metal ${G.resources.metal<cost.metal?'cant-afford':''}">🪨 ${fmt(cost.metal)}</span>`:''}
         ${cost.energy?`<span class="cost-item energy ${G.resources.energy<cost.energy?'cant-afford':''}">⚡ ${fmt(cost.energy)}</span>`:''}
       </div>
-      <button class="btn" onclick="window._queueResearch('${r.id}')" ${(!afford||!meetsR||inQueue||maxed)?'disabled':''}>
+      <button class="btn" style="width:100%" onclick="window._queueResearch('${r.id}')" ${(!afford||!meetsR||inQueue||maxed)?'disabled':''}>
         ${maxed?t('maxed'):inQueue?t('researching'):!meetsR?t('locked'):t('build')}
       </button>
     </div>`;
@@ -4880,7 +4880,7 @@ window._notify = notify;
   .cost-item.cant-afford { opacity:.35; text-decoration:line-through; }
   .tech-locked { opacity:.5; }
 
-  .btn { width:100%; padding:10px; background:linear-gradient(135deg,rgba(0,200,255,.1),rgba(0,200,255,.05)); border:1px solid var(--accent); color:var(--accent); font-family:'Rajdhani',sans-serif; font-size:.9rem; font-weight:700; letter-spacing:2px; text-transform:uppercase; cursor:pointer; border-radius:2px; transition:all .2s; }
+  .btn { padding:10px; background:linear-gradient(135deg,rgba(0,200,255,.1),rgba(0,200,255,.05)); border:1px solid var(--accent); color:var(--accent); font-family:'Rajdhani',sans-serif; font-size:.9rem; font-weight:700; letter-spacing:2px; text-transform:uppercase; cursor:pointer; border-radius:2px; transition:all .2s; }
   .btn:hover:not(:disabled) { background:rgba(0,200,255,.2); box-shadow:var(--glow); }
   .btn:disabled { opacity:.3; cursor:not-allowed; border-color:var(--text2); color:var(--text2); }
   .btn.orange { border-color:var(--accent2); color:var(--accent2); background:linear-gradient(135deg,rgba(255,107,53,.1),rgba(255,107,53,.05)); }
@@ -5019,7 +5019,7 @@ window._notify = notify;
     <p>Nommez votre commandant et votre planète pour débuter la conquête.</p>
     <input class="setup-input" id="commander-name-input" type="text" placeholder="Nom du commandant" maxlength="20">
     <input class="setup-input" id="planet-name-input" type="text" placeholder="Nom de la planète" maxlength="20">
-    <button class="btn" onclick="window._startGame()">FONDER L'EMPIRE</button>
+    <button class="btn" style="width:100%" onclick="window._startGame()">FONDER L'EMPIRE</button>
   </div>
 </div>
 
