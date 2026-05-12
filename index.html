@@ -5359,8 +5359,8 @@ window._notify = notify;
   }
 </script>
 <!-- PROFILE MODAL -->
-<div id="profile-modal" style="display:none;position:fixed;inset:0;z-index:300;align-items:center;justify-content:center;background:rgba(0,0,0,.75)">
-  <div style="background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:32px;width:440px;max-width:95vw;box-shadow:0 0 40px rgba(0,200,255,.15)">
+<div id="profile-modal" style="display:none;position:fixed;inset:0;z-index:300;align-items:center;justify-content:center;background:rgba(0,0,0,.75);padding:12px;box-sizing:border-box">
+  <div style="background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:20px;width:440px;max-width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 0 40px rgba(0,200,255,.15)">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
       <div style="font-family:'Orbitron',monospace;font-size:.85rem;color:var(--accent);letter-spacing:2px">PROFIL</div>
       <button onclick="document.getElementById('profile-modal').style.display='none'" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:1.2rem">✕</button>
@@ -5378,8 +5378,8 @@ window._notify = notify;
 
 <!-- COLONIZE MODAL -->
 <!-- ===== MODAL RENOMMAGE COLONIE ===== -->
-<div id="rename-modal" style="display:none;position:fixed;inset:0;z-index:300;align-items:center;justify-content:center;background:rgba(0,0,0,.75)">
-  <div style="background:var(--panel);border:1px solid var(--accent);border-radius:6px;padding:28px 32px;max-width:360px;width:90%;display:flex;flex-direction:column;gap:16px">
+<div id="rename-modal" style="display:none;position:fixed;inset:0;z-index:300;align-items:center;justify-content:center;background:rgba(0,0,0,.75);padding:12px;box-sizing:border-box">
+  <div style="background:var(--panel);border:1px solid var(--accent);border-radius:6px;padding:20px;max-width:360px;width:100%;max-height:90vh;overflow-y:auto;display:flex;flex-direction:column;gap:16px">
     <div style="font-family:'Orbitron',monospace;font-size:.8rem;color:var(--accent);letter-spacing:2px;text-transform:uppercase">✏️ Renommer la colonie</div>
     <div style="font-size:.85rem;color:var(--text2)">Nom actuel : <span id="rename-modal-current" style="color:var(--text);font-weight:700"></span></div>
     <div style="font-size:.75rem;color:var(--text2);opacity:.7">Cette action est définitive — une seule fois par colonie.</div>
@@ -5395,8 +5395,8 @@ window._notify = notify;
   </div>
 </div>
 
-<div id="colonize-modal" style="display:none;position:fixed;inset:0;z-index:300;align-items:center;justify-content:center;background:rgba(0,0,0,.75)">
-  <div style="background:var(--panel2);border:1px solid rgba(127,255,107,.3);border-radius:6px;padding:32px;width:440px;max-width:95vw;box-shadow:0 0 40px rgba(127,255,107,.15)">
+<div id="colonize-modal" style="display:none;position:fixed;inset:0;z-index:300;align-items:center;justify-content:center;background:rgba(0,0,0,.75);padding:12px;box-sizing:border-box">
+  <div style="background:var(--panel2);border:1px solid rgba(127,255,107,.3);border-radius:6px;padding:20px;width:440px;max-width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 0 40px rgba(127,255,107,.15)">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
       <div id="colonize-modal-title" style="font-family:'Orbitron',monospace;font-size:.85rem;color:var(--accent3);letter-spacing:2px;text-transform:uppercase">Coloniser</div>
       <button onclick="window._closeColonizeModal()" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:1.2rem">✕</button>
@@ -5407,16 +5407,16 @@ window._notify = notify;
       🌍 La planète vous appartiendra au prochain tour.<br>
       ⚠️ Un seul colonisateur sera consommé.
     </div>
-    <div style="display:flex;gap:10px">
-      <button class="btn" style="border-color:var(--border);color:var(--text2)" onclick="window._closeColonizeModal()">ANNULER</button>
-      <button class="btn" style="border-color:var(--accent3);color:var(--accent3);background:rgba(127,255,107,.08)" onclick="window._confirmColonize()">🚀 ENVOYER LE COLONISATEUR</button>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn" style="flex:1;border-color:var(--border);color:var(--text2)" onclick="window._closeColonizeModal()">ANNULER</button>
+      <button class="btn" style="flex:1;border-color:var(--accent3);color:var(--accent3);background:rgba(127,255,107,.08)" onclick="window._confirmColonize()">🚀 ENVOYER LE COLONISATEUR</button>
     </div>
   </div>
 </div>
 
 <!-- COMBAT REPORT MODAL -->
-<div id="combat-report-modal" style="display:none;position:fixed;inset:0;z-index:400;align-items:center;justify-content:center;background:rgba(0,0,0,.82)">
-  <div style="background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:32px;width:500px;max-width:96vw;box-shadow:0 0 60px rgba(255,107,53,.25);max-height:90vh;overflow-y:auto">
+<div id="combat-report-modal" style="display:none;position:fixed;inset:0;z-index:400;align-items:center;justify-content:center;background:rgba(0,0,0,.82);padding:12px;box-sizing:border-box">
+  <div style="background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:20px;width:500px;max-width:100%;box-shadow:0 0 60px rgba(255,107,53,.25);max-height:90vh;overflow-y:auto">
     <div id="combat-report-header" style="text-align:center;margin-bottom:24px">
       <div id="combat-report-outcome" style="font-family:'Orbitron',monospace;font-size:1.4rem;font-weight:900;letter-spacing:4px;margin-bottom:6px"></div>
       <div id="combat-report-subtitle" style="font-size:.82rem;color:var(--text2);letter-spacing:2px">RAPPORT DE COMBAT</div>
@@ -5444,8 +5444,8 @@ window._notify = notify;
 </div>
 
 <!-- ATTACK MODAL -->
-<div id="attack-modal" style="display:none;position:fixed;inset:0;z-index:300;align-items:center;justify-content:center;background:rgba(0,0,0,.75)">
-  <div style="background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:32px;width:480px;max-width:95vw;box-shadow:0 0 40px rgba(255,107,53,.2)">
+<div id="attack-modal" style="display:none;position:fixed;inset:0;z-index:300;align-items:center;justify-content:center;background:rgba(0,0,0,.75);padding:12px;box-sizing:border-box">
+  <div style="background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:20px;width:480px;max-width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 0 40px rgba(255,107,53,.2);display:flex;flex-direction:column;gap:0">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
       <div id="attack-modal-title" style="font-family:'Orbitron',monospace;font-size:.85rem;color:var(--accent2);letter-spacing:2px;text-transform:uppercase">Attaque</div>
       <button onclick="window._closeAttackModal()" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:1.2rem">✕</button>
@@ -5459,9 +5459,9 @@ window._notify = notify;
     </div>
     <div id="attack-travel-time" style="font-size:.8rem;color:var(--accent);text-align:center;margin-bottom:4px;font-family:'Orbitron',monospace;letter-spacing:1px"></div>
     <div id="attack-fuel-preview" style="font-size:.8rem;text-align:center;margin-bottom:16px;font-family:'Orbitron',monospace;letter-spacing:1px"></div>
-    <div style="display:flex;gap:10px">
-      <button class="btn" style="border-color:var(--border);color:var(--text2)" onclick="window._closeAttackModal()">ANNULER</button>
-      <button class="btn orange" onclick="window._confirmAttack()">🚀 ENVOYER L'ESCADRON</button>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn" style="flex:1;border-color:var(--border);color:var(--text2)" onclick="window._closeAttackModal()">ANNULER</button>
+      <button class="btn orange" style="flex:1" onclick="window._confirmAttack()">🚀 ENVOYER L'ESCADRON</button>
     </div>
   </div>
 </div>
